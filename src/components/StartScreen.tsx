@@ -379,6 +379,13 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <span>크레딧</span>
         </button>
 
+        {/* Developer Credit Note */}
+        <div className="w-full text-center -mt-0.5 sm:mt-0">
+          <span className="text-[9px] sm:text-[10px] text-sky-200/60 font-medium tracking-wide">
+            Developed by <strong className="text-amber-200/90 font-bold">Gabriel Byeongje Jeon</strong>
+          </span>
+        </div>
+
       </div>
 
       {/* ========================================================= */}

@@ -5,6 +5,13 @@ import { HERO_CHARACTERS, MASCOT_PETS, ASSET_IMAGES } from '../data/characters';
 import { UI_TEXT } from '../data/translations';
 import { sounds } from '../utils/audio';
 import { 
+  Rigidbody2D, 
+  BoxCollider2D, 
+  Physics2DLayer, 
+  PhysicsParticle,
+  Vector2 
+} from '../utils/physics2d';
+import { 
   Compass, Sparkles, CheckCircle2, Lock, Key, Flame, BookOpen, 
   ShieldCheck, Award, Eye, Users, ChevronRight, Zap, MapPin, 
   Volume2, VolumeX, Trophy, Settings, HelpCircle, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
@@ -59,28 +66,37 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
   const t = UI_TEXT[language];
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Player position (in world coordinates 0-1000 x, 0-600 y)
-  const [playerPos, setPlayerPos] = useState<{ x: number; y: number }>({ x: 500, y: 300 });
+  // Physics Engine: Rigidbody2D for the player
+  const rbRef = useRef<Rigidbody2D>(new Rigidbody2D({ x: 500, y: 300 }));
+  const [playerPos, setPlayerPos] = useState<Vector2>({ x: 500, y: 300 });
   const [playerFacing, setPlayerFacing] = useState<'down' | 'up' | 'left' | 'right'>('down');
+  const [playerVelocity, setPlayerVelocity] = useState<Vector2>({ x: 0, y: 0 });
   const [isMoving, setIsMoving] = useState<boolean>(false);
   const [isDashing, setIsDashing] = useState<boolean>(false);
   const isDashingRef = useRef<boolean>(false);
-  const [stepCount, setStepCount] = useState<number>(0);
+  const [walkPhase, setWalkPhase] = useState<number>(0);
+  const [isColliding, setIsColliding] = useState<boolean>(false);
 
-  // Pet mascot lag position
-  const [petPos, setPetPos] = useState<{ x: number; y: number }>({ x: 470, y: 310 });
+  // Particles for footstep ripples and dash dust
+  const [particles, setParticles] = useState<PhysicsParticle[]>([]);
+  const nextParticleId = useRef<number>(1);
+  const particleTimer = useRef<number>(0);
+
+  // Pet companion follower with spring-damper physics
+  const [petPos, setPetPos] = useState<Vector2>({ x: 460, y: 310 });
+  const petVelRef = useRef<Vector2>({ x: 0, y: 0 });
 
   // Joystick & touch control state (Ref for zero-latency 60FPS loop + state for visual knob)
-  const joystickVectorRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [joystickVisual, setJoystickVisual] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const joystickCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const joystickVectorRef = useRef<Vector2>({ x: 0, y: 0 });
+  const [joystickVisual, setJoystickVisual] = useState<Vector2>({ x: 0, y: 0 });
+  const joystickCenterRef = useRef<Vector2 | null>(null);
   const isJoystickActiveRef = useRef<boolean>(false);
 
   // Keyboard active keys
   const keysPressedRef = useRef<{ [key: string]: boolean }>({});
 
   // Target click pathing
-  const targetWalkPos = useRef<{ x: number; y: number } | null>(null);
+  const targetWalkPos = useRef<Vector2 | null>(null);
 
   // Sector Locked / Alert Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -174,6 +190,51 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
     });
   }, [currentSectorId, quests]);
 
+  // BoxCollider2D definitions for static obstacles and triggers
+  const physicsColliders = useMemo(() => {
+    const list: { collider: BoxCollider2D; position: Vector2 }[] = [];
+
+    sectorObjects.forEach((obj) => {
+      // 1. Solid Obstacle BoxCollider2D (Blocks movement, enables vector sliding)
+      let w = 40;
+      let h = 32;
+      if (obj.type === 'chest') { w = 38; h = 28; }
+      else if (obj.type === 'altar') { w = 44; h = 36; }
+      else if (obj.type === 'stone') { w = 42; h = 32; }
+      else if (obj.type === 'gate') { w = 54; h = 40; }
+      else if (obj.type === 'lantern') { w = 28; h = 28; }
+      else if (obj.type === 'npc') { w = 32; h = 30; }
+
+      const solidCollider = new BoxCollider2D({
+        id: `obstacle_${obj.questId}`,
+        offsetX: 0,
+        offsetY: 6,
+        width: w,
+        height: h,
+        layer: Physics2DLayer.Obstacle,
+        isTrigger: false,
+        tag: `quest_${obj.questId}`,
+      });
+      list.push({ collider: solidCollider, position: { x: obj.x, y: obj.y } });
+
+      // 2. Interaction Trigger Zone BoxCollider2D (Proximity detection)
+      const triggerCollider = new BoxCollider2D({
+        id: `trigger_${obj.questId}`,
+        offsetX: 0,
+        offsetY: 0,
+        width: 100,
+        height: 90,
+        layer: Physics2DLayer.Trigger,
+        isTrigger: true,
+        tag: `trigger_quest_${obj.questId}`,
+        customData: { questId: obj.questId },
+      });
+      list.push({ collider: triggerCollider, position: { x: obj.x, y: obj.y } });
+    });
+
+    return list;
+  }, [sectorObjects]);
+
   // Find nearest interactive object within distance
   const nearestObject = useMemo(() => {
     let closest: WorldObject | null = null;
@@ -194,89 +255,132 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
 
   // Reset player to safe center when changing sector
   useEffect(() => {
+    rbRef.current.teleport({ x: 500, y: 300 });
     setPlayerPos({ x: 500, y: 300 });
     setPetPos({ x: 460, y: 310 });
+    setPlayerVelocity({ x: 0, y: 0 });
     targetWalkPos.current = null;
   }, [currentSectorId]);
 
-  // Main 60FPS Game Loop for Physics & Character Animation
+  // Main 60FPS Physics Game Loop (Rigidbody2D + BoxCollider2D Collision Resolution)
   useEffect(() => {
     let animFrame: number;
+    const worldBounds = { minX: 60, maxX: 940, minY: 80, maxY: 550 };
 
     const gameLoop = () => {
-      let vx = 0;
-      let vy = 0;
+      let inputVx = 0;
+      let inputVy = 0;
 
       // 1. Check Keyboard Input
       const keys = keysPressedRef.current;
-      if (keys['ArrowUp'] || keys['KeyW']) vy -= 1;
-      if (keys['ArrowDown'] || keys['KeyS']) vy += 1;
-      if (keys['ArrowLeft'] || keys['KeyA']) vx -= 1;
-      if (keys['ArrowRight'] || keys['KeyD']) vx += 1;
+      if (keys['ArrowUp'] || keys['KeyW']) inputVy -= 1;
+      if (keys['ArrowDown'] || keys['KeyS']) inputVy += 1;
+      if (keys['ArrowLeft'] || keys['KeyA']) inputVx -= 1;
+      if (keys['ArrowRight'] || keys['KeyD']) inputVx += 1;
 
       // 2. Check Joystick Input via zero-latency ref
       if (joystickVectorRef.current.x !== 0 || joystickVectorRef.current.y !== 0) {
-        vx = joystickVectorRef.current.x;
-        vy = joystickVectorRef.current.y;
+        inputVx = joystickVectorRef.current.x;
+        inputVy = joystickVectorRef.current.y;
       }
 
       // 3. Check Target Click Walking
       if (targetWalkPos.current) {
-        const dx = targetWalkPos.current.x - playerPos.x;
-        const dy = targetWalkPos.current.y - playerPos.y;
+        const dx = targetWalkPos.current.x - rbRef.current.position.x;
+        const dy = targetWalkPos.current.y - rbRef.current.position.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < 10) {
+        if (dist < 12) {
           targetWalkPos.current = null;
         } else {
-          vx = dx / dist;
-          vy = dy / dist;
+          inputVx = dx / dist;
+          inputVy = dy / dist;
         }
       }
 
-      const dashing = isDashingRef.current || keys['ShiftLeft'] || keys['KeyX'];
-      const speed = dashing ? 7.5 : 4.5;
-      const moving = vx !== 0 || vy !== 0;
+      const isDash = isDashingRef.current || keys['ShiftLeft'] || keys['KeyX'];
+      const rb = rbRef.current;
+
+      // Apply input movement through Rigidbody2D
+      rb.addInputMovement({ x: inputVx, y: inputVy }, isDash);
+
+      // Execute integrated physics step with BoxCollider2D obstacle collision & slide
+      const { newPos, hasCollided } = rb.updatePhysics(physicsColliders, worldBounds);
+
+      const currentSpeed = Math.sqrt(rb.velocity.x * rb.velocity.x + rb.velocity.y * rb.velocity.y);
+      const moving = currentSpeed > 0.15;
       setIsMoving(moving);
+      setIsColliding(hasCollided);
+      setPlayerVelocity({ x: rb.velocity.x, y: rb.velocity.y });
+      setPlayerPos(newPos);
 
+      // Determine facing direction from movement velocity
       if (moving) {
-        // Normalize diagonal speed
-        const length = Math.sqrt(vx * vx + vy * vy);
-        const normX = (vx / length) * speed;
-        const normY = (vy / length) * speed;
-
-        // Determine facing direction
-        if (Math.abs(normX) > Math.abs(normY)) {
-          setPlayerFacing(normX > 0 ? 'right' : 'left');
+        if (Math.abs(rb.velocity.x) > Math.abs(rb.velocity.y) * 0.8) {
+          setPlayerFacing(rb.velocity.x > 0 ? 'right' : 'left');
         } else {
-          setPlayerFacing(normY > 0 ? 'down' : 'up');
+          setPlayerFacing(rb.velocity.y > 0 ? 'down' : 'up');
         }
 
-        setPlayerPos((prev) => {
-          const nextX = Math.max(70, Math.min(930, prev.x + normX));
-          const nextY = Math.max(90, Math.min(540, prev.y + normY));
-          return { x: nextX, y: nextY };
-        });
+        // Natural walk cycle animation phase
+        setWalkPhase((prev) => prev + currentSpeed * 0.12);
 
-        setStepCount((c) => c + 1);
-
-        // Smooth pet trailing
-        setPetPos((prev) => {
-          const targetX = playerPos.x - (playerFacing === 'right' ? 35 : playerFacing === 'left' ? -35 : 0);
-          const targetY = playerPos.y - (playerFacing === 'down' ? 25 : playerFacing === 'up' ? -25 : 0);
-          return {
-            x: prev.x + (targetX - prev.x) * 0.15,
-            y: prev.y + (targetY - prev.y) * 0.15,
+        // Footstep / Ripple Particles Generation
+        particleTimer.current += 1;
+        if (particleTimer.current % (isDash ? 4 : 7) === 0) {
+          const pId = nextParticleId.current++;
+          const newParticle: PhysicsParticle = {
+            id: pId,
+            x: newPos.x + (Math.random() * 8 - 4),
+            y: newPos.y + 12 + (Math.random() * 4 - 2),
+            vx: -rb.velocity.x * 0.15 + (Math.random() * 0.4 - 0.2),
+            vy: -rb.velocity.y * 0.15 + (Math.random() * 0.4 - 0.2),
+            alpha: isDash ? 0.7 : 0.45,
+            scale: isDash ? 1.2 : 0.8,
+            type: isDash ? 'dash' : 'ripple',
           };
-        });
+          setParticles((prev) => [...prev.slice(-15), newParticle]);
+        }
       }
+
+      // Update active particles (decay alpha & position)
+      setParticles((prev) =>
+        prev
+          .map((p) => ({
+            ...p,
+            x: p.x + p.vx,
+            y: p.y + p.vy,
+            alpha: p.alpha - 0.04,
+            scale: p.scale * 1.03,
+          }))
+          .filter((p) => p.alpha > 0.05)
+      );
+
+      // Companion Pet soft spring-damper follower physics
+      const petTargetOffsetX = playerFacing === 'right' ? -38 : playerFacing === 'left' ? 38 : -20;
+      const petTargetOffsetY = playerFacing === 'down' ? -26 : playerFacing === 'up' ? 26 : -16;
+      const petTargetX = newPos.x + petTargetOffsetX;
+      const petTargetY = newPos.y + petTargetOffsetY;
+
+      const springK = 0.08;
+      const petDamping = 0.82;
+      const petDx = petTargetX - petPos.x;
+      const petDy = petTargetY - petPos.y;
+
+      petVelRef.current.x = (petVelRef.current.x + petDx * springK) * petDamping;
+      petVelRef.current.y = (petVelRef.current.y + petDy * springK) * petDamping;
+
+      setPetPos((prev) => ({
+        x: prev.x + petVelRef.current.x,
+        y: prev.y + petVelRef.current.y,
+      }));
 
       animFrame = requestAnimationFrame(gameLoop);
     };
 
     animFrame = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(animFrame);
-  }, [playerFacing, playerPos]);
+  }, [physicsColliders, playerFacing, petPos]);
 
   // Keyboard Event Listeners
   useEffect(() => {
@@ -737,63 +841,121 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
           })}
 
           {/* ===================================================== */}
-          {/* MASCOT FAM PET (Trailing Player) */}
+          {/* PHYSICS PARTICLES (Footstep Ripples & Dash Dust) */}
+          {/* ===================================================== */}
+          {particles.map((p) => (
+            <div
+              key={p.id}
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none rounded-full"
+              style={{
+                left: `${(p.x / 1000) * 100}%`,
+                top: `${(p.y / 600) * 100}%`,
+                width: `${p.type === 'dash' ? 14 : 10}px`,
+                height: `${p.type === 'dash' ? 7 : 5}px`,
+                transform: `scale(${p.scale})`,
+                opacity: p.alpha,
+                backgroundColor: p.type === 'dash' ? 'rgba(251, 191, 36, 0.6)' : 'rgba(147, 197, 253, 0.45)',
+                boxShadow: p.type === 'dash' ? '0 0 6px rgba(245, 158, 11, 0.5)' : '0 0 4px rgba(59, 130, 246, 0.3)',
+                zIndex: 6,
+              }}
+            />
+          ))}
+
+          {/* ===================================================== */}
+          {/* MASCOT FAM PET (Soft Spring-Damper Follower Physics) */}
           {/* ===================================================== */}
           <div
-            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center transition-transform"
+            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center select-none"
             style={{
               left: `${(petPos.x / 1000) * 100}%`,
               top: `${(petPos.y / 600) * 100}%`,
               zIndex: Math.floor((petPos.y / 600) * 100) + 10,
             }}
           >
-            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden border border-sky-400/80 shadow-md bg-slate-900 animate-float select-none">
+            {/* Free-standing Pet Mascot without square card box */}
+            <div className="relative w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center animate-float select-none transition-transform">
               <img
                 src={MASCOT_PETS.find((p) => p.id === fam.id || (p.id === 'lamb' && fam.id === 'shalom') || (p.id === 'turtle' && fam.id === 'wisdom'))?.image || MASCOT_PETS[0].image}
                 alt="Pet"
                 referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover rounded-full"
+                style={{
+                  filter: 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 6px rgba(56, 189, 248, 0.55))',
+                }}
               />
             </div>
-            <div className="w-5 h-1.5 bg-black/30 rounded-full blur-[1px] -mt-0.5" />
+            <div className="w-5 h-1.5 bg-black/40 rounded-full blur-[1px] -mt-0.5" />
           </div>
 
           {/* ===================================================== */}
-          {/* PLAYER CHARACTER SPRITE */}
+          {/* PLAYER CHARACTER SPRITE (Standalone Figure & Rigidbody2D) */}
           {/* ===================================================== */}
-          <div
-            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center"
-            style={{
-              left: `${(playerPos.x / 1000) * 100}%`,
-              top: `${(playerPos.y / 600) * 100}%`,
-              zIndex: Math.floor((playerPos.y / 600) * 100) + 15,
-            }}
-          >
-            {/* Player Name Overhead */}
-            <div className="mb-0.5 px-1.5 py-0.2 rounded bg-slate-950/80 text-[8px] sm:text-[9px] font-black text-amber-300 border border-amber-500/40 shadow">
-              {playerProfile.name}
-            </div>
+          {(() => {
+            const currentSpeed = Math.sqrt(playerVelocity.x * playerVelocity.x + playerVelocity.y * playerVelocity.y);
+            const bobbingY = isMoving ? Math.sin(walkPhase * 2) * 2.8 : 0;
+            const tiltAngle = isMoving ? Math.min(7, Math.max(-7, playerVelocity.x * 1.6)) : 0;
+            const squashX = isMoving ? 1 + Math.abs(Math.sin(walkPhase)) * 0.08 : 1;
+            const squashY = isMoving ? 1 - Math.abs(Math.sin(walkPhase)) * 0.08 : 1;
 
-            {/* Character Graphic with directional facing and walk cycle animation */}
-            <div
-              className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden border-2 border-amber-400 shadow-md bg-slate-900 select-none transition-transform ${
-                isMoving ? (stepCount % 2 === 0 ? '-translate-y-1 rotate-3' : '-translate-y-0.5 -rotate-3') : ''
-              } ${playerFacing === 'left' ? 'scale-x-[-1]' : ''}`}
-            >
-              <img
-                src={HERO_CHARACTERS.find((h) => h.id === playerProfile.characterId)?.image || HERO_CHARACTERS[0].image}
-                alt={playerProfile.name}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
+            return (
+              <div
+                className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center select-none"
+                style={{
+                  left: `${(playerPos.x / 1000) * 100}%`,
+                  top: `${(playerPos.y / 600) * 100}%`,
+                  zIndex: Math.floor((playerPos.y / 600) * 100) + 15,
+                }}
+              >
+                {/* Player Name Overhead floating badge */}
+                <div className="mb-0.5 px-1.5 py-0.2 rounded-full bg-slate-950/90 text-[8px] sm:text-[9px] font-black text-amber-300 border border-amber-500/50 shadow-md backdrop-blur-xs">
+                  {playerProfile.name}
+                </div>
 
-              {isDashing && (
-                <span className="absolute -left-2 top-0 text-xl opacity-50 blur-[1px]">💨</span>
-              )}
-            </div>
+                {/* Free-standing Character Body (No square border / No dark box) */}
+                <div
+                  className="relative select-none flex flex-col items-center"
+                  style={{
+                    transform: `translateY(${bobbingY}px) rotate(${tiltAngle}deg) scale(${squashX}, ${squashY}) ${
+                      playerFacing === 'left' ? 'scaleX(-1)' : ''
+                    }`,
+                    transition: 'transform 0.04s ease-out',
+                  }}
+                >
+                  <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center">
+                    <img
+                      src={HERO_CHARACTERS.find((h) => h.id === playerProfile.characterId)?.image || HERO_CHARACTERS[0].image}
+                      alt={playerProfile.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover rounded-full"
+                      style={{
+                        filter: isColliding
+                          ? 'drop-shadow(0 6px 8px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 10px rgba(251, 191, 36, 0.9))'
+                          : 'drop-shadow(0 6px 8px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 6px rgba(251, 191, 36, 0.5))',
+                      }}
+                    />
 
-            <div className="w-6 h-1.5 bg-black/50 rounded-full blur-[1.5px] -mt-0.5" />
-          </div>
+                    {/* Collision Shockwave at character feet */}
+                    {isColliding && (
+                      <div className="absolute inset-0 rounded-full border-2 border-amber-300 animate-ping opacity-60 pointer-events-none" />
+                    )}
+                  </div>
+
+                  {/* Dash Streak FX */}
+                  {isDashing && currentSpeed > 2 && (
+                    <span className="absolute -left-3 top-1 text-xl opacity-75 blur-[0.5px]">💨</span>
+                  )}
+                </div>
+
+                {/* Organic Ground Shadow on the wooden deck */}
+                <div
+                  className="w-8 h-2 bg-black/60 rounded-full blur-[1.5px] -mt-1"
+                  style={{
+                    transform: `scale(${1 - Math.abs(bobbingY) * 0.08})`,
+                  }}
+                />
+              </div>
+            );
+          })()}
 
           {/* Click Destination Target Marker */}
           {targetWalkPos.current && (

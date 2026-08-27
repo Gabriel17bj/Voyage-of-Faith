@@ -12,7 +12,7 @@ import {
   PlayerProfile, 
   VerseQuest 
 } from './types';
-import { FAM_LIST, SECTOR_LIST, VERSE_QUESTS } from './data/verses';
+import { FAM_LIST, SECTOR_LIST, VERSE_QUESTS, getRandomizedQuests } from './data/verses';
 import { UI_TEXT } from './data/translations';
 import { StartScreen } from './components/StartScreen';
 import { RpgWorld } from './components/RpgWorld';
@@ -36,6 +36,9 @@ export default function App() {
     fam: 'agape',
     language: 'ko',
   });
+
+  // Dynamic Randomized Quests State (Shuffled on every new game/session)
+  const [quests, setQuests] = useState<VerseQuest[]>(() => getRandomizedQuests());
 
   // Gameplay state
   const [solvedQuestIds, setSolvedQuestIds] = useState<number[]>([]);
@@ -77,21 +80,21 @@ export default function App() {
 
   // Determine active/next recommended quest
   const activeQuestId = useMemo(() => {
-    for (let i = 1; i <= VERSE_QUESTS.length; i++) {
+    for (let i = 1; i <= quests.length; i++) {
       if (!solvedQuestIds.includes(i)) {
         return i;
       }
     }
-    return VERSE_QUESTS.length;
-  }, [solvedQuestIds]);
+    return quests.length;
+  }, [quests, solvedQuestIds]);
 
   // Sync sector view with active quest on progress
   useEffect(() => {
-    const quest = VERSE_QUESTS.find((q) => q.id === activeQuestId);
+    const quest = quests.find((q) => q.id === activeQuestId);
     if (quest) {
       setCurrentSectorId(quest.sectorId);
     }
-  }, [activeQuestId]);
+  }, [quests, activeQuestId]);
 
   // Timer Tick
   useEffect(() => {
@@ -128,8 +131,9 @@ export default function App() {
     return `${mStr}:${sStr}.${hStr}`;
   };
 
-  // Start Game Handler
+  // Start Game Handler (Fresh Randomization)
   const handleStartGame = (profile: PlayerProfile) => {
+    setQuests(getRandomizedQuests());
     setPlayerProfile(profile);
     setLanguage(profile.language);
     setSolvedQuestIds([]);
@@ -151,7 +155,7 @@ export default function App() {
   const handleQuestSolved = (questId: number) => {
     setSolvedQuestIds((prev) => {
       const next = prev.includes(questId) ? prev : [...prev, questId];
-      if (next.length === VERSE_QUESTS.length) {
+      if (next.length === quests.length) {
         handleFinalEscape();
       }
       return next;
@@ -214,7 +218,7 @@ export default function App() {
     setIsMuted(muted);
   };
 
-  const activeQuestData = VERSE_QUESTS.find((q) => q.id === activeModalQuestId);
+  const activeQuestData = quests.find((q) => q.id === activeModalQuestId);
 
   return (
     <div className="h-[100dvh] w-screen max-h-[100dvh] bg-[#060b13] text-slate-100 flex flex-col items-center justify-center p-1 sm:p-2 select-none font-sans overflow-hidden">
@@ -257,7 +261,7 @@ export default function App() {
             language={language}
             currentSectorId={currentSectorId}
             onSelectSector={(secId) => setCurrentSectorId(secId)}
-            quests={VERSE_QUESTS}
+            quests={quests}
             solvedQuestIds={solvedQuestIds}
             activeQuestId={activeQuestId}
             onOpenQuest={(qId) => setActiveModalQuestId(qId)}
@@ -285,7 +289,7 @@ export default function App() {
               fam={currentFamInfo}
               hints={hints}
               onUseHint={handleUseHint}
-              totalQuestsCount={VERSE_QUESTS.length}
+              totalQuestsCount={quests.length}
             />
           )}
         </AnimatePresence>
@@ -328,6 +332,10 @@ export default function App() {
               onFamChange={handleSwitchFam}
               onResetGame={() => {
                 setGameState('start');
+              }}
+              onReshuffleQuests={() => {
+                setQuests(getRandomizedQuests());
+                setSolvedQuestIds([]);
               }}
             />
           )}

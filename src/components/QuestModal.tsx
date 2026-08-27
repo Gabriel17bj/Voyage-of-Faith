@@ -40,6 +40,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   // Level 1: Single Blank state
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
+  const [shuffledOptions, setShuffledOptions] = useState<string[]>([]);
 
   // Level 2: Word Order state
   const [selectedTokens, setSelectedTokens] = useState<string[]>([]);
@@ -68,6 +69,11 @@ export const QuestModal: React.FC<QuestModalProps> = ({
 
     if (quest.level === 1 || quest.singleBlank) {
       setSelectedOption(null);
+      if (quest.singleBlank) {
+        const originalOpts = [...quest.singleBlank.options[language]];
+        const shuffled = [...originalOpts].sort(() => Math.random() - 0.5);
+        setShuffledOptions(shuffled);
+      }
     }
     
     if (quest.level === 2 || quest.orderTokens) {
@@ -198,7 +204,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     onUseHint('hourglass');
 
     if ((quest.level === 1 || quest.singleBlank) && quest.singleBlank) {
-      const wrong = quest.singleBlank.options[language].filter((opt) => opt !== quest.singleBlank?.answer[language]);
+      const optsPool = shuffledOptions.length > 0 ? shuffledOptions : quest.singleBlank.options[language];
+      const wrong = optsPool.filter((opt) => opt !== quest.singleBlank?.answer[language]);
       const toEliminate = wrong.slice(0, 2);
       setEliminatedOptions(toEliminate);
       setStatusMessage({ type: 'hint', text: `⏳ [모래시계] 오답 2개를 제거했습니다!` });
@@ -345,7 +352,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
 
               {/* Bento Option Buttons */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
-                {quest.singleBlank.options[language].map((option) => {
+                {(shuffledOptions.length > 0 ? shuffledOptions : quest.singleBlank.options[language]).map((option) => {
                   const isSelected = selectedOption === option;
                   const isEliminated = eliminatedOptions.includes(option);
 

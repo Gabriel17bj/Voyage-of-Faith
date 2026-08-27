@@ -2,7 +2,7 @@ import React from 'react';
 import { FamId, Language } from '../types';
 import { FAM_LIST } from '../data/verses';
 import { UI_TEXT } from '../data/translations';
-import { X, Settings, Volume2, VolumeX, Globe, Music, Maximize, RotateCcw, ShieldCheck } from 'lucide-react';
+import { X, Settings, Volume2, VolumeX, Globe, Music, Maximize, RotateCcw, ShieldCheck, Shuffle } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 interface SettingsModalProps {
@@ -14,6 +14,7 @@ interface SettingsModalProps {
   selectedFam: FamId;
   onFamChange: (fam: FamId) => void;
   onResetGame?: () => void;
+  onReshuffleQuests?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -25,6 +26,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   selectedFam,
   onFamChange,
   onResetGame,
+  onReshuffleQuests,
 }) => {
   const t = UI_TEXT[language];
 
@@ -171,6 +173,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               })}
             </div>
           </div>
+
+          {/* Reshuffle Verses option */}
+          {onReshuffleQuests && (
+            <div className="p-3 bg-amber-950/30 rounded-2xl border border-amber-500/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Shuffle className="w-4 h-4 text-amber-400" />
+                <div>
+                  <strong className="block text-amber-300 font-bold">말씀 문제 랜덤 셔플 (다시 섞기)</strong>
+                  <span className="text-[10px] text-amber-200/70">모든 구역의 성경 구절 문제를 새롭게 랜덤 배치</span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  sounds.playCorrect();
+                  onReshuffleQuests();
+                  onClose();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 border border-amber-400 text-white font-black text-[11px] shadow cursor-pointer active:scale-95 transition"
+              >
+                랜덤 섞기
+              </button>
+            </div>
+          )}
 
           {/* Reset Game option */}
           {onResetGame && (

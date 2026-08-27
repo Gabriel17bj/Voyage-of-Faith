@@ -1,7 +1,7 @@
 import React from 'react';
 import { Language } from '../types';
 import { UI_TEXT } from '../data/translations';
-import { X, Sparkles, Heart, Music, BookOpen, ShieldCheck } from 'lucide-react';
+import { X, Sparkles, Heart, Music, BookOpen, Code2 } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 interface CreditsModalProps {
@@ -32,7 +32,7 @@ export const CreditsModal: React.FC<CreditsModalProps> = ({ onClose, language })
               sounds.playTap();
               onClose();
             }}
-            className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700"
+            className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -41,6 +41,20 @@ export const CreditsModal: React.FC<CreditsModalProps> = ({ onClose, language })
         {/* Content */}
         <div className="flex flex-col gap-3 text-xs leading-relaxed text-slate-300">
           
+          {/* Developer Card */}
+          <div className="p-3 bg-gradient-to-r from-amber-950/40 via-slate-800/80 to-slate-800/50 rounded-2xl border border-amber-400/50 flex flex-col gap-1 shadow-md">
+            <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+              <Code2 className="w-4 h-4 text-amber-400" />
+              <span>개발자 (Developer)</span>
+            </div>
+            <p className="text-sm text-amber-100 font-extrabold tracking-wide">
+              Gabriel Byeongje Jeon
+            </p>
+            <p className="text-[10px] text-slate-400">
+              PROMISE LAND : 믿음의 항해 성경 암송 방탈출 게임 시스템 기획 및 개발
+            </p>
+          </div>
+
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-700 flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5 text-amber-300 font-bold">
               <BookOpen className="w-4 h-4" />
@@ -79,7 +93,7 @@ export const CreditsModal: React.FC<CreditsModalProps> = ({ onClose, language })
             sounds.playTap();
             onClose();
           }}
-          className="rpg-btn-wood w-full py-2.5 sm:py-3 rounded-xl font-black text-sm"
+          className="rpg-btn-wood w-full py-2.5 sm:py-3 rounded-xl font-black text-sm cursor-pointer"
         >
           {t.close}
         </button>

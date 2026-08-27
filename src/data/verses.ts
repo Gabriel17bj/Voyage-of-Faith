@@ -1026,3 +1026,85 @@ export const VERSE_QUESTS: VerseQuest[] = [
     hintWhisper: { ko: '최종 관문! 성령의 능력으로 땅끝까지 예수님의 증인이 됩시다! 할렐루야!', en: 'Final Key! Empowered by the Holy Spirit to witness to the ends of the earth!' }
   }
 ];
+
+/**
+ * Fisher-Yates array shuffle helper
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/**
+ * Generates a fully randomized quest set for every game session.
+ * Within each sector (Sectors 1 to 4), scripture verses are randomly shuffled
+ * among the available interactable object locations, with randomized choices for multiple-choice options.
+ * Sector 5 retains the ultimate Acts 1:8 climax final gate.
+ */
+export function getRandomizedQuests(): VerseQuest[] {
+  const result: VerseQuest[] = [];
+
+  // Group quests by sectorId
+  for (let s = 1; s <= 5; s++) {
+    const sectorQuests = VERSE_QUESTS.filter((q) => q.sectorId === s);
+    if (s === 5 || sectorQuests.length <= 1) {
+      // Keep Sector 5 as the grand final escape gate
+      result.push(...sectorQuests.map((q) => JSON.parse(JSON.stringify(q))));
+      continue;
+    }
+
+    // Clone and extract the verse quiz contents
+    const verseContents = sectorQuests.map((q) => ({
+      reference: q.reference,
+      text: q.text,
+      singleBlank: q.singleBlank
+        ? {
+            ...q.singleBlank,
+            options: {
+              ko: shuffleArray(q.singleBlank.options.ko),
+              en: shuffleArray(q.singleBlank.options.en),
+            },
+          }
+        : undefined,
+      orderTokens: q.orderTokens ? { ...q.orderTokens } : undefined,
+      multiBlank: q.multiBlank ? { ...q.multiBlank } : undefined,
+      typingTarget: q.typingTarget ? { ...q.typingTarget } : undefined,
+      hintInitial: q.hintInitial,
+      hintElimination: q.hintElimination,
+      hintWhisper: q.hintWhisper,
+    }));
+
+    // Shuffle verse contents randomly
+    const shuffledContents = shuffleArray(verseContents);
+
+    // Map the shuffled verse contents back onto the sector's slot metadata (id, objectName, icon, coordinates, level, sectorId)
+    sectorQuests.forEach((slotQuest, idx) => {
+      const content = shuffledContents[idx];
+      result.push({
+        id: slotQuest.id,
+        level: slotQuest.level,
+        sectorId: slotQuest.sectorId,
+        objectName: slotQuest.objectName,
+        objectIcon: slotQuest.objectIcon,
+        x: slotQuest.x,
+        y: slotQuest.y,
+        reference: content.reference,
+        text: content.text,
+        singleBlank: content.singleBlank,
+        orderTokens: content.orderTokens,
+        multiBlank: content.multiBlank,
+        typingTarget: content.typingTarget,
+        hintInitial: content.hintInitial,
+        hintElimination: content.hintElimination,
+        hintWhisper: content.hintWhisper,
+      });
+    });
+  }
+
+  return result;
+}
+
