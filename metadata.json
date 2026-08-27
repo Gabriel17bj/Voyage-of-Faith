@@ -1,0 +1,6 @@
+{
+  "name": "PROMISE LAND : 믿음의 항해",
+  "description": "예수님과 함께하는 36개 성경 말씀 암송 방탈출 모바일 RPG 웹 게임",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
