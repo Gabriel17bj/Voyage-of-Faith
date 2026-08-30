@@ -2,7 +2,7 @@ import React from 'react';
 import { FamId, Language } from '../types';
 import { FAM_LIST } from '../data/verses';
 import { UI_TEXT } from '../data/translations';
-import { X, Settings, Volume2, VolumeX, Globe, Music, Maximize, RotateCcw, ShieldCheck, Shuffle } from 'lucide-react';
+import { X, Settings, Volume2, VolumeX, Globe, Music, Maximize, RotateCcw, ShieldCheck, Shuffle, Lock, LogOut, FileText } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 interface SettingsModalProps {
@@ -15,6 +15,10 @@ interface SettingsModalProps {
   onFamChange: (fam: FamId) => void;
   onResetGame?: () => void;
   onReshuffleQuests?: () => void;
+  isAdminMode?: boolean;
+  onOpenAdminLogin?: () => void;
+  onOpenParentReport?: () => void;
+  onLogoutAdmin?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -27,6 +31,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onFamChange,
   onResetGame,
   onReshuffleQuests,
+  isAdminMode = false,
+  onOpenAdminLogin,
+  onOpenParentReport,
+  onLogoutAdmin,
 }) => {
   const t = UI_TEXT[language];
 
@@ -172,6 +180,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 );
               })}
             </div>
+          </div>
+
+          {/* Admin Mode / Teacher Report Section */}
+          <div className="p-3 bg-slate-800/80 rounded-2xl border border-slate-700/80 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <strong className="text-slate-200 font-bold">교회학교 교사 · 관리자 모드</strong>
+              </div>
+              {isAdminMode ? (
+                <span className="bg-emerald-950 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" />
+                  인증됨
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-500">선생님 전용</span>
+              )}
+            </div>
+
+            {isAdminMode ? (
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playTap();
+                    if (onOpenParentReport) {
+                      onClose();
+                      onOpenParentReport();
+                    }
+                  }}
+                  className="flex-1 py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow cursor-pointer active:scale-95"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>학생 학습 리포트 열기</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playTap();
+                    if (onLogoutAdmin) {
+                      onLogoutAdmin();
+                    }
+                  }}
+                  className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-red-300 border border-red-900/60 font-bold text-xs flex items-center gap-1 cursor-pointer active:scale-95"
+                  title="관리자 로그아웃"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>로그아웃</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playTap();
+                  if (onOpenAdminLogin) {
+                    onClose();
+                    onOpenAdminLogin();
+                  }
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>관리자 로그인 (비밀번호 입력)</span>
+              </button>
+            )}
           </div>
 
           {/* Reshuffle Verses option */}

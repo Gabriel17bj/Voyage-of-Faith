@@ -25,6 +25,7 @@ import { RulesModal } from './components/RulesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CreditsModal } from './components/CreditsModal';
 import { ParentReportModal } from './components/ParentReportModal';
+import { AdminLoginModal } from './components/AdminLoginModal';
 import { BgmPlayer } from './components/BgmPlayer';
 import { sounds } from './utils/audio';
 import { 
@@ -67,6 +68,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showCredits, setShowCredits] = useState<boolean>(false);
   const [showParentReport, setShowParentReport] = useState<boolean>(false);
+  const [showAdminLogin, setShowAdminLogin] = useState<boolean>(false);
+  const [isAdminMode, setIsAdminMode] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
   // Time Attack Timer (ms)
@@ -365,7 +368,6 @@ export default function App() {
                   : undefined
               }
               onResumeGame={handleResumeGame}
-              onOpenParentReport={() => setShowParentReport(true)}
             />
           </div>
         )}
@@ -458,6 +460,24 @@ export default function App() {
                 setQuests(getRandomizedQuests());
                 setSolvedQuestIds([]);
               }}
+              isAdminMode={isAdminMode}
+              onOpenAdminLogin={() => setShowAdminLogin(true)}
+              onOpenParentReport={() => setShowParentReport(true)}
+              onLogoutAdmin={() => setIsAdminMode(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Admin Login Modal (Secure Teacher / Guardian Gate) */}
+        <AnimatePresence>
+          {showAdminLogin && (
+            <AdminLoginModal
+              onClose={() => setShowAdminLogin(false)}
+              onLoginSuccess={() => {
+                setIsAdminMode(true);
+                setShowAdminLogin(false);
+                setShowParentReport(true);
+              }}
             />
           )}
         </AnimatePresence>
@@ -472,11 +492,15 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Parent & Teacher Report Modal */}
+        {/* Parent & Teacher Report Modal (Admin Mode Only) */}
         <AnimatePresence>
           {showParentReport && (
             <ParentReportModal
               onClose={() => setShowParentReport(false)}
+              onLogoutAdmin={() => {
+                setIsAdminMode(false);
+                setShowParentReport(false);
+              }}
               language={language}
               playerName={playerProfile.name}
               quests={quests}

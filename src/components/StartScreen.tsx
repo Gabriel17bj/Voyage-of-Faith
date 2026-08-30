@@ -17,7 +17,6 @@ interface StartScreenProps {
   hasSavedProgress?: boolean;
   savedProgressStats?: { stars: number; completedCount: number };
   onResumeGame?: () => void;
-  onOpenParentReport?: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -31,7 +30,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   hasSavedProgress = false,
   savedProgressStats,
   onResumeGame,
-  onOpenParentReport,
 }) => {
   const t = UI_TEXT[language];
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
@@ -354,20 +352,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <Play className="w-3.5 h-3.5 fill-amber-300 text-amber-300 shrink-0" />
           <span className="text-amber-100">{hasSavedProgress ? '새 항해 시작' : '게임시작'}</span>
         </button>
-
-        {/* Parent & Teacher Report Button */}
-        {onOpenParentReport && (
-          <button
-            onClick={() => {
-              sounds.playTap();
-              onOpenParentReport();
-            }}
-            className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95 border-amber-500/50"
-          >
-            <ShieldCheck className="w-3 h-3 text-amber-300 shrink-0" />
-            <span>선생님 리포트</span>
-          </button>
-        )}
 
         {/* Settings Button */}
         <button
