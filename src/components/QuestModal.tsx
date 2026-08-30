@@ -5,15 +5,16 @@ import { ASSET_IMAGES } from '../data/characters';
 import { sounds } from '../utils/audio';
 import { 
   X, CheckCircle, AlertCircle, Sparkles, HelpCircle, 
-  RotateCcw, Undo2, ArrowRight, Search, Hourglass, MessageSquare,
-  Key, Shield, BookOpen, Wand2, PenTool
+  RotateCcw, Search, Hourglass, MessageSquare,
+  Key, Star, BookOpen, Wand2, PenTool, PlayCircle, PauseCircle,
+  Flame, Award, Compass, ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface QuestModalProps {
   quest: VerseQuest;
   onClose: () => void;
-  onSolve: (questId: number) => void;
+  onSolve: (questId: number, starsEarned: 1 | 2 | 3) => void;
   language: Language;
   fam: FamInfo;
   hints: {
@@ -23,6 +24,8 @@ interface QuestModalProps {
   };
   onUseHint: (type: 'magnifier' | 'hourglass' | 'whisper') => void;
   totalQuestsCount: number;
+  isAlreadySolved?: boolean;
+  previousStars?: number;
 }
 
 export const QuestModal: React.FC<QuestModalProps> = ({
@@ -34,8 +37,13 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   hints,
   onUseHint,
   totalQuestsCount,
+  isAlreadySolved = false,
+  previousStars = 0,
 }) => {
   const t = UI_TEXT[language];
+
+  // Hint counter for star rating calculation
+  const [questHintsUsed, setQuestHintsUsed] = useState<number>(0);
 
   // Level 1: Single Blank state
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -49,7 +57,6 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   // Level 3: Multi Blank state
   const [multiSlots, setMultiSlots] = useState<{ [index: number]: string }>({});
   const [activeSlotIndex, setActiveSlotIndex] = useState<number>(0);
-  const [multiEliminated, setMultiEliminated] = useState<string[]>([]);
 
   // Level 4 & Final: Typing state
   const [typedText, setTypedText] = useState<string>('');
@@ -57,6 +64,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   // General feedback state
   const [statusMessage, setStatusMessage] = useState<{ type: 'error' | 'hint' | 'success'; text: string } | null>(null);
   const [isSolvedAnim, setIsSolvedAnim] = useState<boolean>(false);
+  const [earnedStars, setEarnedStars] = useState<1 | 2 | 3>(3);
   const [showWhisperBubble, setShowWhisperBubble] = useState<boolean>(false);
 
   // Initialize quest states
@@ -65,7 +73,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     setIsSolvedAnim(false);
     setShowWhisperBubble(false);
     setEliminatedOptions([]);
-    setMultiEliminated([]);
+    setQuestHintsUsed(0);
 
     if (quest.level === 1 || quest.singleBlank) {
       setSelectedOption(null);
@@ -99,7 +107,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     }
   }, [quest, language]);
 
-  // Clean normalizer for typing verification
+  // Clean normalizer for typing and matching
   const normalize = (str: string) => {
     return str
       .replace(/[.,·!?:;'"~()[\]\s]/g, '')
@@ -143,7 +151,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     setStatusMessage(null);
   };
 
-  // Verification Logic
+  // Verification Logic with Child-Friendly Positive Feedback
   const handleVerify = () => {
     let isCorrect = false;
 
@@ -176,13 +184,33 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     if (isCorrect) {
       sounds.playCorrect();
       setIsSolvedAnim(true);
-      setStatusMessage({ type: 'success', text: t.correctAnswer });
+
+      // Calculate Stars: 0 hints = 3 stars, 1 hint = 2 stars, 2+ hints = 1 star
+      let stars: 1 | 2 | 3 = 3;
+      if (questHintsUsed === 1) stars = 2;
+      if (questHintsUsed >= 2) stars = 1;
+      setEarnedStars(stars);
+
+      const starFeedback = stars === 3
+        ? '🌟 대단해요! 힌트 없이 완벽하게 성공했어요! (⭐⭐⭐)'
+        : stars === 2
+        ? '✨ 멋져요! 믿음으로 항해를 완수했어요! (⭐⭐)'
+        : '🎉 끝까지 포기하지 않고 말씀을 마음에 새겼어요! (⭐)';
+
+      setStatusMessage({ type: 'success', text: starFeedback });
       setTimeout(() => {
-        onSolve(quest.id);
-      }, 1100);
+        onSolve(quest.id, stars);
+      }, 1300);
     } else {
       sounds.playWrong();
-      setStatusMessage({ type: 'error', text: t.wrongAnswer });
+      // Friendly, encouraging failure feedback (No negative punishment)
+      const friendlyTips = [
+        '괜찮아요! 힌트 도구를 사용하거나 다시 시도해 보세요 ⛵',
+        '거의 다 왔어요! 알맞은 단어 카드를 다시 골라볼까요? ✨',
+        '힌트를 사용해도 항해는 멋지게 계속할 수 있어요 🕊️',
+      ];
+      const randomTip = friendlyTips[Math.floor(Math.random() * friendlyTips.length)];
+      setStatusMessage({ type: 'error', text: randomTip });
     }
   };
 
@@ -191,9 +219,10 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     if (hints.magnifier <= 0) return;
     sounds.playHint();
     onUseHint('magnifier');
+    setQuestHintsUsed((prev) => prev + 1);
     setStatusMessage({
       type: 'hint',
-      text: `🔍 [돋보기 힌트] ${quest.hintInitial[language]}`
+      text: `🔍 [빛의 돋보기] ${quest.hintInitial[language]}`
     });
   };
 
@@ -202,13 +231,14 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     if (hints.hourglass <= 0) return;
     sounds.playHint();
     onUseHint('hourglass');
+    setQuestHintsUsed((prev) => prev + 1);
 
     if ((quest.level === 1 || quest.singleBlank) && quest.singleBlank) {
       const optsPool = shuffledOptions.length > 0 ? shuffledOptions : quest.singleBlank.options[language];
       const wrong = optsPool.filter((opt) => opt !== quest.singleBlank?.answer[language]);
       const toEliminate = wrong.slice(0, 2);
       setEliminatedOptions(toEliminate);
-      setStatusMessage({ type: 'hint', text: `⏳ [모래시계] 오답 2개를 제거했습니다!` });
+      setStatusMessage({ type: 'hint', text: `⏳ [진리의 모래시계] 오답 2개를 지워드렸어요! 이제 선택해 보세요.` });
     } else if ((quest.level === 2 || quest.orderTokens) && quest.orderTokens) {
       const correctTokens = quest.orderTokens[language];
       const nextIndex = selectedTokens.length;
@@ -219,10 +249,9 @@ export const QuestModal: React.FC<QuestModalProps> = ({
           handleSelectToken(nextCorrectToken, availIdx);
         }
       }
-      setStatusMessage({ type: 'hint', text: `⏳ [모래시계] 다음 단어를 올바르게 배치했습니다!` });
+      setStatusMessage({ type: 'hint', text: `⏳ [진리의 모래시계] 다음 단어를 올바르게 놓아드렸어요!` });
     } else if (quest.level === 3 && quest.multiBlank) {
       const answers = quest.multiBlank.answers[language];
-      // Find the first unfilled or incorrect blank index
       let targetIdx = -1;
       for (let i = 0; i < answers.length; i++) {
         if (normalize(multiSlots[i] || '') !== normalize(answers[i])) {
@@ -233,16 +262,14 @@ export const QuestModal: React.FC<QuestModalProps> = ({
       if (targetIdx !== -1) {
         const correctWord = answers[targetIdx];
         setMultiSlots((prev) => ({ ...prev, [targetIdx]: correctWord }));
-        setStatusMessage({ type: 'hint', text: `⏳ [모래시계] 빈칸 ${targetIdx + 1}의 정답 [${correctWord}]을(를) 입력했습니다!` });
-      } else {
-        setStatusMessage({ type: 'hint', text: `⏳ [모래시계] 모든 빈칸이 올바르게 입력되어 있습니다!` });
+        setStatusMessage({ type: 'hint', text: `⏳ [진리의 모래시계] 빈칸 ${targetIdx + 1}에 [${correctWord}]을(를) 채웠어요!` });
       }
     } else if ((quest.level === 4 || quest.level === 5) && quest.typingTarget) {
       const target = quest.typingTarget[language];
       const currentLen = typedText.length;
-      const nextChunk = target.slice(0, Math.min(target.length, currentLen + 12));
+      const nextChunk = target.slice(0, Math.min(target.length, currentLen + 14));
       setTypedText(nextChunk);
-      setStatusMessage({ type: 'hint', text: `⏳ [모래시계] 다음 구절을 일부 보조 입력했습니다!` });
+      setStatusMessage({ type: 'hint', text: `⏳ [진리의 모래시계] 다음 구절을 보조 입력해드렸어요!` });
     }
   };
 
@@ -251,6 +278,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     if (hints.whisper <= 0) return;
     sounds.playHint();
     onUseHint('whisper');
+    setQuestHintsUsed((prev) => prev + 1);
     setShowWhisperBubble(true);
     setStatusMessage({
       type: 'hint',
@@ -270,77 +298,94 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   }, [quest, language]);
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-[#050e1b]/95 select-none overflow-hidden">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-[#040914]/90 backdrop-blur-sm select-none overflow-hidden touch-manipulation">
       
-      {/* Background: Faith Voyage Sea Backdrop with 40% Opacity */}
+      {/* Background Sea Texture */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <img
           src={ASSET_IMAGES.seaBackground}
-          alt="Voyage of Faith Background"
+          alt="Sea"
           referrerPolicy="no-referrer"
-          className="absolute inset-0 w-full h-full object-cover opacity-40 filter brightness-90 contrast-110"
+          className="absolute inset-0 w-full h-full object-cover opacity-30 filter brightness-90 contrast-110"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050e1b]/70 via-[#07172b]/50 to-[#040a14]/85" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#040914]/80 via-[#07172b]/60 to-[#040a14]/90" />
       </div>
 
       <motion.div
-        initial={{ scale: 0.96, opacity: 0 }}
+        initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.96, opacity: 0 }}
-        className="relative w-full max-w-2xl bg-[#091526]/95 rounded-2xl sm:rounded-3xl border-2 sm:border-4 border-[#b47a3e] shadow-[0_0_60px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden text-slate-100 max-h-[96vh]"
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="relative w-full max-w-lg md:max-w-2xl bg-[#091526] rounded-3xl border-2 sm:border-4 border-[#b47a3e] shadow-[0_0_50px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden text-slate-100 max-h-[96dvh]"
       >
-        {/* Subtle inner sea background at 40% opacity */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-2xl sm:rounded-3xl">
-          <img
-            src={ASSET_IMAGES.seaBackground}
-            alt="Sea"
-            referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full object-cover opacity-40 filter brightness-70"
-          />
-          <div className="absolute inset-0 bg-[#091526]/80 backdrop-blur-[1px]" />
-        </div>
-
-        {/* Compact Solid Stage Header */}
-        <div className="relative z-10 bg-[#050f1d]/90 px-3.5 sm:px-5 py-2 sm:py-2.5 border-b border-slate-800 flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-amber-300 font-black text-xs sm:text-sm tracking-wide">
-              {quest.level === 5 ? '👑 FINAL STAGE' : `STAGE ${quest.level}`}: {quest.objectName[language]}
+        {/* ========================================================= */}
+        {/* 1. COMPACT HEADER (Under 56px, Thumb-friendly) */}
+        {/* ========================================================= */}
+        <div className="relative z-10 bg-[#050f1d] px-4 py-2.5 border-b border-slate-800 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-amber-300 font-black text-xs sm:text-sm tracking-wide shrink-0">
+              {quest.level === 5 ? '👑 최종 관문' : `항로 ${quest.level}단계`}
             </span>
-            <span className="text-[10px] sm:text-xs text-sky-300 bg-sky-950 px-2 py-0.5 rounded-md border border-sky-600/50 font-bold">
+            <span className="text-[11px] sm:text-xs text-sky-300 bg-sky-950 px-2 py-0.5 rounded-lg border border-sky-600/50 font-bold truncate">
               {quest.reference[language]}
             </span>
+            {isAlreadySolved && (
+              <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/50 px-1.5 py-0.5 rounded-md font-bold shrink-0">
+                복습 항해
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] sm:text-[11px] text-slate-300 font-mono font-bold bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-700">
-              Verse {quest.id.toString().padStart(2, '0')} / {totalQuestsCount}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[11px] text-slate-300 font-mono font-bold bg-slate-800 px-2 py-1 rounded-xl border border-slate-700">
+              #{quest.id.toString().padStart(2, '0')} / {totalQuestsCount}
             </span>
             <button
               onClick={() => {
                 sounds.playTap();
                 onClose();
               }}
-              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition border border-slate-700 cursor-pointer"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition border border-slate-700 active:scale-95 cursor-pointer"
+              aria-label="닫기"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Main Quest Puzzle Body */}
-        <div className="relative z-10 p-3 sm:p-4 flex flex-col gap-2 sm:gap-2.5 overflow-y-auto max-h-[calc(96vh-60px)]">
+        {/* ========================================================= */}
+        {/* 2. MAIN SCROLLABLE CONTENT BODY */}
+        {/* ========================================================= */}
+        <div className="relative z-10 p-3.5 sm:p-5 flex flex-col gap-3 overflow-y-auto max-h-[calc(96dvh-130px)]">
           
+          {/* Objective & Mascot Dialogue Banner */}
+          <div className="rounded-2xl bg-gradient-to-r from-sky-950/80 via-slate-900 to-sky-950/80 p-3.5 border border-sky-600/30 flex items-center gap-3 shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl shrink-0 shadow">
+              {fam.emoji}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] text-amber-300 font-bold">
+                {fam.name[language]}의 항해 안내
+              </p>
+              <p className="text-xs sm:text-sm font-semibold text-slate-100">
+                {quest.level === 1 && '빈칸에 알맞은 단어 카드를 골라보세요!'}
+                {quest.level === 2 && '단어 카드를 순서대로 탭하여 문장을 완성하세요!'}
+                {quest.level === 3 && '핵심 단어 빈칸을 채워 말씀을 완성해 보세요!'}
+                {quest.level >= 4 && '말씀을 소리 내어 읽으며 암송을 완성해 보세요!'}
+              </p>
+            </div>
+          </div>
+
           {/* ================= LEVEL 1: Single Blank Multiple Choice ================= */}
           {(quest.level === 1 || quest.singleBlank) && quest.singleBlank && (
-            <div className="flex flex-col items-center justify-center text-center gap-2.5">
-              {/* Verse Display with Blank Placeholder */}
-              <div className="bg-slate-900/90 p-3 sm:p-4 rounded-xl border border-slate-700 w-full">
-                <p className="text-sm sm:text-base font-medium leading-relaxed px-1 text-slate-100">
+            <div className="flex flex-col gap-3">
+              {/* Verse Display with Blank Box */}
+              <div className="bg-slate-900/90 p-4 sm:p-5 rounded-2xl border border-slate-700 w-full shadow-inner">
+                <p className="text-base sm:text-lg font-bold leading-relaxed text-slate-100 text-center break-keep">
                   {quest.singleBlank.maskedText[language].split('[ ??? ]').map((part, idx, arr) => (
                     <React.Fragment key={idx}>
                       "{part}
                       {idx < arr.length - 1 && (
-                        <span className="inline-block min-w-[70px] px-2.5 py-0.5 bg-slate-950 border-b-2 border-amber-400 mx-1.5 align-bottom font-bold text-amber-300 text-sm sm:text-base">
+                        <span className="inline-block min-w-[80px] px-3 py-1 bg-slate-950 border-2 border-amber-400 rounded-xl mx-1.5 align-middle font-black text-amber-300 text-base sm:text-lg shadow">
                           {selectedOption || ' ? '}
                         </span>
                       )}
@@ -350,8 +395,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({
                 </p>
               </div>
 
-              {/* Bento Option Buttons */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+              {/* Bento Option Buttons (Minimum 48px height touch target) */}
+              <div className="grid grid-cols-2 gap-2.5 w-full">
                 {(shuffledOptions.length > 0 ? shuffledOptions : quest.singleBlank.options[language]).map((option) => {
                   const isSelected = selectedOption === option;
                   const isEliminated = eliminatedOptions.includes(option);
@@ -359,18 +404,19 @@ export const QuestModal: React.FC<QuestModalProps> = ({
                   return (
                     <button
                       key={option}
+                      type="button"
                       disabled={isEliminated}
                       onClick={() => {
                         sounds.playChip();
                         setSelectedOption(option);
                         setStatusMessage(null);
                       }}
-                      className={`py-2 px-3 rounded-xl transition-all text-xs sm:text-sm font-bold shadow border cursor-pointer ${
+                      className={`min-h-[48px] py-3 px-4 rounded-2xl transition-all text-sm sm:text-base font-extrabold shadow-md border flex items-center justify-center text-center cursor-pointer active:scale-95 ${
                         isEliminated
-                          ? 'opacity-25 bg-slate-950 border-slate-800 text-slate-600 line-through cursor-not-allowed'
+                          ? 'opacity-20 bg-slate-950 border-slate-800 text-slate-600 line-through cursor-not-allowed'
                           : isSelected
-                          ? 'bg-amber-500 border-amber-300 text-slate-950 shadow-md font-black scale-105'
-                          : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 active:scale-95'
+                          ? 'bg-amber-400 border-amber-300 text-slate-950 shadow-amber-500/30 font-black scale-[1.02] ring-2 ring-amber-300'
+                          : 'bg-slate-800/95 border-slate-700 text-slate-100 hover:bg-slate-700 hover:border-slate-600'
                       }`}
                     >
                       {option}
@@ -383,50 +429,51 @@ export const QuestModal: React.FC<QuestModalProps> = ({
 
           {/* ================= LEVEL 2: Word Order Puzzle ================= */}
           {(quest.level === 2 || quest.orderTokens) && quest.orderTokens && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {/* Target Placed Chips Box */}
-              <div className="min-h-[70px] max-h-[110px] p-2.5 rounded-xl bg-slate-900/90 border-2 border-dashed border-blue-500/50 flex flex-wrap gap-1.5 items-center content-start overflow-y-auto">
+              <div className="min-h-[90px] p-3 rounded-2xl bg-slate-900/90 border-2 border-dashed border-sky-500/50 flex flex-wrap gap-2 items-center content-start shadow-inner">
                 {selectedTokens.length === 0 ? (
-                  <span className="text-xs text-slate-400 w-full text-center py-3">
-                    아래 단어 칩을 순서대로 터치하여 말씀을 완성하세요
-                  </span>
+                  <p className="text-xs sm:text-sm text-slate-400 w-full text-center py-4">
+                    아래 단어 카드를 순서대로 탭하여 문장을 완성해 보세요.
+                  </p>
                 ) : (
                   selectedTokens.map((token, idx) => (
                     <motion.button
                       key={`sel-${token}-${idx}`}
-                      initial={{ scale: 0.8, opacity: 0 }}
+                      initial={{ scale: 0.85, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      whileTap={{ scale: 0.92 }}
+                      whileTap={{ scale: 0.94 }}
                       onClick={() => handleReturnToken(token, idx)}
-                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg shadow border border-blue-400 flex items-center gap-1 cursor-pointer"
+                      className="min-h-[44px] px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-black text-xs sm:text-sm rounded-xl shadow border border-sky-400 flex items-center gap-1.5 cursor-pointer"
                     >
                       <span>{token}</span>
-                      <span className="text-[10px] opacity-70">✕</span>
+                      <span className="text-[11px] bg-sky-800/80 px-1 rounded-full">✕</span>
                     </motion.button>
                   ))
                 )}
               </div>
 
               {/* Action Controls for Level 2 */}
-              <div className="flex justify-between items-center px-1 text-[11px]">
-                <span className="text-slate-400">{t.tapToReturn}</span>
+              <div className="flex justify-between items-center px-1">
+                <span className="text-xs text-slate-400 font-medium">탭하여 단어를 넣고 뺄 수 있어요</span>
                 <button
+                  type="button"
                   onClick={handleResetTokens}
-                  className="px-2.5 py-0.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1 text-[10px] border border-slate-700 cursor-pointer"
+                  className="min-h-[38px] px-3 rounded-xl bg-slate-800 text-slate-300 hover:text-white flex items-center gap-1 text-xs font-bold border border-slate-700 cursor-pointer active:scale-95"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  {t.clearOrder}
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>다시 놓기</span>
                 </button>
               </div>
 
               {/* Source Available Word Chips */}
-              <div className="flex flex-wrap justify-center gap-1.5 p-2 bg-slate-900/90 rounded-xl border border-slate-800 max-h-[100px] overflow-y-auto">
+              <div className="flex flex-wrap justify-center gap-2 p-3 bg-slate-900/90 rounded-2xl border border-slate-800">
                 {availableTokens.map((token, idx) => (
                   <motion.button
                     key={`avail-${token}-${idx}`}
-                    whileTap={{ scale: 0.92 }}
+                    whileTap={{ scale: 0.94 }}
                     onClick={() => handleSelectToken(token, idx)}
-                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-xs rounded-lg border border-slate-600 shadow transition cursor-pointer"
+                    className="min-h-[44px] px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-600 shadow transition cursor-pointer active:bg-sky-900"
                   >
                     {token}
                   </motion.button>
@@ -437,10 +484,10 @@ export const QuestModal: React.FC<QuestModalProps> = ({
 
           {/* ================= LEVEL 3: Multi Blank Direct Typing ================= */}
           {quest.level === 3 && quest.multiBlank && (
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-3">
               {/* Scripture Template Preview with Highlighted Slots */}
-              <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900/90 border border-slate-700 shadow-inner">
-                <p className="text-xs sm:text-sm leading-relaxed text-slate-100 break-keep">
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-700 shadow-inner">
+                <p className="text-sm sm:text-base leading-relaxed text-slate-100 break-keep">
                   {(() => {
                     const template = quest.multiBlank.template[language];
                     const parts = template.split(/(\[ __\d+__ \])/g);
@@ -455,13 +502,13 @@ export const QuestModal: React.FC<QuestModalProps> = ({
                         return (
                           <span
                             key={idx}
-                            className={`inline-flex items-center px-2 py-0.5 mx-1 rounded-md text-xs sm:text-sm font-bold border transition-colors ${
+                            className={`inline-flex items-center px-2.5 py-1 mx-1 rounded-xl text-xs sm:text-sm font-black border transition-colors ${
                               userWord
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-400'
-                                : 'bg-slate-950 text-slate-400 border-dashed border-amber-500/50'
+                                ? 'bg-amber-400/20 text-amber-300 border-amber-400'
+                                : 'bg-slate-950 text-slate-400 border-dashed border-amber-500/60'
                             }`}
                           >
-                            <span className="w-3.5 h-3.5 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-[9px] font-black mr-1">
+                            <span className="w-4 h-4 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center text-[10px] font-black mr-1">
                               {slotIdx + 1}
                             </span>
                             <span>{userWord || `빈칸 ${slotIdx + 1}`}</span>
@@ -475,29 +522,30 @@ export const QuestModal: React.FC<QuestModalProps> = ({
               </div>
 
               {/* Action Bar */}
-              <div className="flex items-center justify-between text-[11px] px-1">
-                <span className="text-amber-300 font-bold flex items-center gap-1">
-                  <PenTool className="w-3 h-3 text-amber-400" />
-                  <span>각 빈칸에 들어갈 단어를 직접 입력하세요 ({quest.multiBlank.answers[language].length}개)</span>
+              <div className="flex items-center justify-between text-xs px-1">
+                <span className="text-amber-300 font-bold flex items-center gap-1.5">
+                  <PenTool className="w-3.5 h-3.5 text-amber-400" />
+                  <span>빈칸에 들어갈 핵심 단어를 입력해 보세요 ({quest.multiBlank.answers[language].length}개)</span>
                 </span>
                 <button
+                  type="button"
                   onClick={handleResetMultiSlots}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white flex items-center gap-1 text-[10px] border border-slate-700 cursor-pointer"
+                  className="min-h-[36px] px-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white flex items-center gap-1 text-xs font-bold border border-slate-700 cursor-pointer active:scale-95"
                 >
-                  <RotateCcw className="w-2.5 h-2.5" />
-                  <span>전체 지우기</span>
+                  <RotateCcw className="w-3 h-3" />
+                  <span>비우기</span>
                 </button>
               </div>
 
-              {/* Direct Input Fields for Each Blank */}
-              <div className={`grid gap-2 w-full ${quest.multiBlank.answers[language].length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
+              {/* Direct Input Fields for Each Blank (Touch-friendly 44px+) */}
+              <div className={`grid gap-2.5 w-full ${quest.multiBlank.answers[language].length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
                 {quest.multiBlank.answers[language].map((_, idx) => (
-                  <div key={idx} className="flex flex-col gap-1 bg-slate-900/80 p-2 sm:p-2.5 rounded-xl border border-slate-700">
-                    <label className="text-[11px] font-bold text-amber-200 flex items-center gap-1.5">
-                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-[10px] font-black">
+                  <div key={idx} className="flex flex-col gap-1 bg-slate-900/90 p-2.5 rounded-2xl border border-slate-700">
+                    <label className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center text-[10px] font-black">
                         {idx + 1}
                       </span>
-                      <span>빈칸 {idx + 1} 단어 입력</span>
+                      <span>빈칸 {idx + 1} 단어</span>
                     </label>
                     <input
                       type="text"
@@ -507,8 +555,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({
                         setMultiSlots((prev) => ({ ...prev, [idx]: val }));
                         setStatusMessage(null);
                       }}
-                      placeholder={`예: 단어 직접 입력...`}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 text-xs sm:text-sm font-bold focus:border-amber-400 focus:ring-1 focus:ring-amber-400 placeholder:text-slate-600 focus:outline-none transition"
+                      placeholder="단어 입력..."
+                      className="min-h-[44px] w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-extrabold focus:border-amber-400 focus:ring-1 focus:ring-amber-400 placeholder:text-slate-600 focus:outline-none transition"
                     />
                   </div>
                 ))}
@@ -518,26 +566,26 @@ export const QuestModal: React.FC<QuestModalProps> = ({
 
           {/* ================= LEVEL 4 & FINAL: Sentence Typing ================= */}
           {(quest.level === 4 || quest.level === 5) && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {/* Scripture Preview Reference Card */}
               <div
-                className={`p-2.5 rounded-xl border ${
+                className={`p-3.5 rounded-2xl border ${
                   quest.level === 5
-                    ? 'bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-amber-400 shadow-md'
+                    ? 'bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-amber-400 shadow-lg'
                     : 'bg-slate-900/90 border-slate-700'
                 }`}
               >
-                <div className="flex items-center justify-between text-xs text-amber-300 font-bold mb-0.5">
+                <div className="flex items-center justify-between text-xs text-amber-300 font-extrabold mb-1">
                   <span>{quest.reference[language]}</span>
                   {quest.level === 5 && <span className="text-amber-400">👑 GRAND ESCAPE KEY</span>}
                 </div>
-                <p className="text-xs sm:text-sm text-slate-200 leading-snug font-medium break-keep">
+                <p className="text-sm sm:text-base text-slate-200 leading-relaxed font-semibold break-keep">
                   "{quest.text[language]}"
                 </p>
               </div>
 
-              {/* Typing Input Box */}
-              <div className="flex flex-col gap-1">
+              {/* Typing Input Box (Touch-friendly, clear font) */}
+              <div className="flex flex-col gap-1.5">
                 <textarea
                   value={typedText}
                   onChange={(e) => {
@@ -546,13 +594,13 @@ export const QuestModal: React.FC<QuestModalProps> = ({
                   }}
                   rows={2}
                   placeholder={t.typingPlaceholder}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-slate-500 resize-none font-medium leading-snug"
+                  className="w-full p-3.5 rounded-2xl bg-slate-950 border border-slate-700 text-slate-100 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-amber-400 placeholder:text-slate-500 resize-none font-bold leading-relaxed"
                 />
 
                 {/* Match Accuracy Indicator & Quick Reset */}
-                <div className="flex items-center justify-between text-[10px] text-slate-400 px-1">
+                <div className="flex items-center justify-between text-xs text-slate-400 px-1">
                   <span>
-                    일치율:{' '}
+                    암송 일치율:{' '}
                     <strong className="text-amber-300 font-mono font-bold">
                       {Math.min(
                         100,
@@ -564,29 +612,31 @@ export const QuestModal: React.FC<QuestModalProps> = ({
                     </strong>
                   </span>
                   <button
+                    type="button"
                     onClick={() => {
                       sounds.playTap();
                       setTypedText('');
                     }}
-                    className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                    className="min-h-[36px] px-2 text-xs font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
                   >
-                    초기화
+                    처음부터 다시 쓰기
                   </button>
                 </div>
               </div>
 
-              {/* Quick Word Assist Chips */}
-              <div className="flex items-center gap-1.5 bg-slate-900/90 px-2.5 py-1.5 rounded-lg border border-slate-800 overflow-x-auto">
-                <span className="text-[9px] text-slate-400 shrink-0 font-semibold flex items-center gap-0.5">
-                  <Wand2 className="w-2.5 h-2.5 text-amber-400" />
-                  빠른 단어:
+              {/* Quick Word Assist Chips (44px touch friendly) */}
+              <div className="flex items-center gap-2 bg-slate-900/90 p-2 rounded-2xl border border-slate-800 overflow-x-auto">
+                <span className="text-xs text-slate-400 shrink-0 font-bold flex items-center gap-1">
+                  <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                  단어 도우미:
                 </span>
-                <div className="flex gap-1 overflow-x-auto py-0.5">
+                <div className="flex gap-1.5 overflow-x-auto py-1">
                   {typingSuggestionWords.map((w, idx) => (
                     <button
                       key={idx}
+                      type="button"
                       onClick={() => handleQuickWordAdd(w)}
-                      className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] rounded border border-slate-700 font-medium shrink-0 cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 shrink-0 cursor-pointer active:scale-95"
                     >
                       +{w}
                     </button>
@@ -596,25 +646,25 @@ export const QuestModal: React.FC<QuestModalProps> = ({
             </div>
           )}
 
-          {/* Feedback & Status Message Toast */}
+          {/* Feedback & Status Message Toast (Child Friendly) */}
           <AnimatePresence>
             {statusMessage && (
               <motion.div
-                initial={{ opacity: 0, y: 3 }}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className={`py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow ${
+                className={`py-2.5 px-4 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center gap-2 shadow-lg ${
                   statusMessage.type === 'success'
-                    ? 'bg-emerald-900/95 text-emerald-200 border border-emerald-500'
+                    ? 'bg-emerald-950 text-emerald-200 border-2 border-emerald-500'
                     : statusMessage.type === 'error'
-                    ? 'bg-rose-950/95 text-rose-200 border border-rose-500'
-                    : 'bg-slate-800 text-amber-200 border border-amber-500/50'
+                    ? 'bg-amber-950 text-amber-200 border-2 border-amber-500'
+                    : 'bg-slate-800 text-sky-200 border-2 border-sky-400'
                 }`}
               >
-                {statusMessage.type === 'success' && <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
-                {statusMessage.type === 'error' && <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
-                {statusMessage.type === 'hint' && <HelpCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                <span className="leading-tight break-keep text-[11px]">{statusMessage.text}</span>
+                {statusMessage.type === 'success' && <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />}
+                {statusMessage.type === 'error' && <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
+                {statusMessage.type === 'hint' && <HelpCircle className="w-4 h-4 text-sky-400 shrink-0" />}
+                <span className="leading-snug break-keep">{statusMessage.text}</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -624,75 +674,84 @@ export const QuestModal: React.FC<QuestModalProps> = ({
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="p-2 bg-slate-900 border border-amber-400/50 rounded-xl flex items-center gap-2 shadow"
+              className="p-3 bg-slate-900 border-2 border-amber-400/60 rounded-2xl flex items-center gap-2.5 shadow-md"
             >
-              <div className="w-7 h-7 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-base shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-lg shrink-0">
                 {fam.emoji}
               </div>
-              <div className="text-[11px]">
-                <span className="font-bold text-amber-300">{fam.name[language]}의 말씀 가이드: </span>
-                <span className="text-slate-200">{quest.hintWhisper[language]}</span>
+              <div className="text-xs leading-relaxed">
+                <span className="font-extrabold text-amber-300">{fam.name[language]}의 가이드: </span>
+                <span className="text-slate-200 font-semibold">{quest.hintWhisper[language]}</span>
               </div>
             </motion.div>
           )}
 
-          {/* Compact 3-Item Hints Bar */}
-          <div className="p-1.5 bg-[#060b13] grid grid-cols-3 gap-2 border border-slate-800 rounded-xl">
+          {/* ========================================================= */}
+          {/* 3-ITEM HINTS TOOLBELT (44px Minimum Touch Targets) */}
+          {/* ========================================================= */}
+          <div className="p-2 bg-[#060b13] grid grid-cols-3 gap-2 border border-slate-800 rounded-2xl">
             <button
+              type="button"
               onClick={handleUseMagnifier}
               disabled={hints.magnifier <= 0}
-              className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-800/80 rounded-lg hover:bg-slate-700 transition-colors group disabled:opacity-30 cursor-pointer"
+              className="min-h-[44px] flex items-center justify-center gap-1.5 py-2 px-1.5 bg-slate-800/90 rounded-xl hover:bg-slate-700 transition active:scale-95 disabled:opacity-30 cursor-pointer border border-slate-700"
             >
-              <span className="text-sm">🔍</span>
-              <span className="text-[10px] text-slate-300 font-bold">빛의 돋보기 ({hints.magnifier})</span>
+              <span className="text-base">🔍</span>
+              <span className="text-[11px] text-slate-200 font-bold">돋보기 ({hints.magnifier})</span>
             </button>
 
             <button
+              type="button"
               onClick={handleUseHourglass}
               disabled={hints.hourglass <= 0}
-              className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-800/80 rounded-lg hover:bg-slate-700 transition-colors group disabled:opacity-30 cursor-pointer"
+              className="min-h-[44px] flex items-center justify-center gap-1.5 py-2 px-1.5 bg-slate-800/90 rounded-xl hover:bg-slate-700 transition active:scale-95 disabled:opacity-30 cursor-pointer border border-slate-700"
             >
-              <span className="text-sm">⏳</span>
-              <span className="text-[10px] text-slate-300 font-bold">진리의 모래시계 ({hints.hourglass})</span>
+              <span className="text-base">⏳</span>
+              <span className="text-[11px] text-slate-200 font-bold">모래시계 ({hints.hourglass})</span>
             </button>
 
             <button
+              type="button"
               onClick={handleUseWhisper}
               disabled={hints.whisper <= 0}
-              className="flex items-center justify-center gap-1.5 py-1.5 bg-slate-800/80 rounded-lg hover:bg-slate-700 transition-colors group disabled:opacity-30 cursor-pointer"
+              className="min-h-[44px] flex items-center justify-center gap-1.5 py-2 px-1.5 bg-slate-800/90 rounded-xl hover:bg-slate-700 transition active:scale-95 disabled:opacity-30 cursor-pointer border border-slate-700"
             >
-              <span className="text-sm">💬</span>
-              <span className="text-[10px] text-slate-300 font-bold">팜의 속삭임 ({hints.whisper})</span>
+              <span className="text-base">💬</span>
+              <span className="text-[11px] text-slate-200 font-bold">속삭임 ({hints.whisper})</span>
             </button>
           </div>
+        </div>
 
-          {/* Footer Unlock Action Button */}
+        {/* ========================================================= */}
+        {/* 3. FIXED BOTTOM PRIMARY CTA (Safe Area Aware) */}
+        {/* ========================================================= */}
+        <div className="relative z-10 border-t border-slate-800 bg-[#050f1d]/95 px-4 py-3 pb-[calc(14px+env(safe-area-inset-bottom))] backdrop-blur shrink-0">
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={handleVerify}
             disabled={isSolvedAnim}
-            className={`w-full py-2.5 sm:py-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer ${
+            className={`min-h-[50px] w-full rounded-2xl font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer ${
               isSolvedAnim
-                ? 'bg-emerald-500 text-white shadow-emerald-500/40'
+                ? 'bg-emerald-500 text-white shadow-emerald-500/40 animate-pulse'
                 : quest.level === 5
                 ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-500/40'
-                : 'rpg-btn-wood text-amber-200'
+                : 'bg-sky-500 hover:bg-sky-400 text-slate-950 font-black shadow-sky-500/30'
             }`}
           >
             {isSolvedAnim ? (
               <>
-                <CheckCircle className="w-4 h-4" />
-                <span>{t.correctAnswer}</span>
+                <CheckCircle className="w-5 h-5" />
+                <span>정답 확인 완료! 별 획득 중...</span>
               </>
             ) : quest.level === 5 ? (
               <>
-                <Key className="w-4 h-4" />
+                <Key className="w-5 h-5" />
                 <span>성령의 황금문 열기 (대탈출 성공!)</span>
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>{t.submitAnswer}</span>
+                <Sparkles className="w-5 h-5 text-slate-950" />
+                <span>{isAlreadySolved ? '복습 항해 완료하기' : '정답 확인하고 항해 계속하기'}</span>
               </>
             )}
           </motion.button>

@@ -27,6 +27,8 @@ interface RpgWorldProps {
   onSelectSector: (sectorId: number) => void;
   quests: VerseQuest[];
   solvedQuestIds: number[];
+  questStars?: { [questId: number]: number };
+  totalStars?: number;
   activeQuestId: number;
   onOpenQuest: (questId: number) => void;
   hints: { magnifier: number; hourglass: number; whisper: number };
@@ -54,6 +56,8 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
   onSelectSector,
   quests,
   solvedQuestIds,
+  questStars = {},
+  totalStars = 0,
   activeQuestId,
   onOpenQuest,
   hints,
@@ -586,8 +590,8 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                   ({fam.name[language]})
                 </span>
               </div>
-              <div className="flex items-center gap-1 mt-0.5">
-                <div className="w-16 sm:w-24 h-1.5 sm:h-2 bg-slate-900 rounded-full border border-slate-700 overflow-hidden">
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <div className="w-16 sm:w-20 h-1.5 sm:h-2 bg-slate-900 rounded-full border border-slate-700 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-blue-500 to-amber-400 transition-all duration-300"
                     style={{ width: `${Math.max(10, (solvedQuestIds.length / 36) * 100)}%` }}
@@ -595,6 +599,9 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 </div>
                 <span className="text-[8px] sm:text-[9px] text-blue-300 font-mono font-bold">
                   {solvedQuestIds.length}/36
+                </span>
+                <span className="text-[8px] sm:text-[9px] text-amber-300 font-black flex items-center bg-amber-950/80 px-1 rounded border border-amber-500/40">
+                  ⭐ {totalStars}
                 </span>
               </div>
             </div>
@@ -787,8 +794,9 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 {/* Status Floating Indicator */}
                 <div className="relative mb-0.5">
                   {isSolved ? (
-                    <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[9px] font-bold shadow-md">
-                      ✓
+                    <div className="flex items-center gap-0.5 bg-emerald-950/95 text-amber-300 px-1.5 py-0.5 rounded-full text-[9px] font-black border border-emerald-500/70 shadow-md">
+                      <span>✓</span>
+                      <span>{'⭐'.repeat(questStars[obj.questId] || 3)}</span>
                     </div>
                   ) : isCurrent ? (
                     <div className="flex items-center gap-1 bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shadow-lg animate-bounce border border-amber-200">
@@ -808,7 +816,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                   {/* Proximity Interaction Prompt [A] */}
                   {isNear && !isLocked && (
                     <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-yellow-400 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-lg border border-yellow-200 animate-pulse">
-                      [A] 대화 / 조사
+                      {isSolved ? '[A] 다시 복습하기' : '[A] 대화 / 암송하기'}
                     </div>
                   )}
                 </div>

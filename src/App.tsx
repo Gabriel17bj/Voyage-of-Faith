@@ -42,6 +42,7 @@ export default function App() {
 
   // Gameplay state
   const [solvedQuestIds, setSolvedQuestIds] = useState<number[]>([]);
+  const [questStars, setQuestStars] = useState<{ [questId: number]: number }>({});
   const [activeModalQuestId, setActiveModalQuestId] = useState<number | null>(null);
   const [currentSectorId, setCurrentSectorId] = useState<number>(1);
   const [hints, setHints] = useState<{ magnifier: number; hourglass: number; whisper: number }>({
@@ -131,12 +132,18 @@ export default function App() {
     return `${mStr}:${sStr}.${hStr}`;
   };
 
+  // Total stars earned across all quests
+  const totalStars = useMemo(() => {
+    return Object.values(questStars).reduce<number>((acc, curr) => acc + (typeof curr === 'number' ? curr : 0), 0);
+  }, [questStars]);
+
   // Start Game Handler (Fresh Randomization)
   const handleStartGame = (profile: PlayerProfile) => {
     setQuests(getRandomizedQuests());
     setPlayerProfile(profile);
     setLanguage(profile.language);
     setSolvedQuestIds([]);
+    setQuestStars({});
     setElapsedTimeMs(0);
     setTotalHintsUsed(0);
     setHints({ magnifier: 5, hourglass: 5, whisper: 5 });
@@ -151,8 +158,13 @@ export default function App() {
     setPlayerProfile((prev) => ({ ...prev, fam: famId }));
   };
 
-  // Quest Solved Handler
-  const handleQuestSolved = (questId: number) => {
+  // Quest Solved Handler with 3-Star Rating
+  const handleQuestSolved = (questId: number, starsEarned: 1 | 2 | 3) => {
+    setQuestStars((prev) => ({
+      ...prev,
+      [questId]: Math.max(prev[questId] || 0, starsEarned),
+    }));
+
     setSolvedQuestIds((prev) => {
       const next = prev.includes(questId) ? prev : [...prev, questId];
       if (next.length === quests.length) {
@@ -263,6 +275,8 @@ export default function App() {
             onSelectSector={(secId) => setCurrentSectorId(secId)}
             quests={quests}
             solvedQuestIds={solvedQuestIds}
+            questStars={questStars}
+            totalStars={totalStars}
             activeQuestId={activeQuestId}
             onOpenQuest={(qId) => setActiveModalQuestId(qId)}
             hints={hints}
@@ -290,6 +304,8 @@ export default function App() {
               hints={hints}
               onUseHint={handleUseHint}
               totalQuestsCount={quests.length}
+              isAlreadySolved={solvedQuestIds.includes(activeQuestData.id)}
+              previousStars={questStars[activeQuestData.id] || 0}
             />
           )}
         </AnimatePresence>

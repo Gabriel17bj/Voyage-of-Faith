@@ -76,6 +76,13 @@ export interface PlayerProfile {
   language: Language;
 }
 
+export interface QuestResult {
+  questId: number;
+  stars: 1 | 2 | 3;
+  hintsUsed: number;
+  solvedAt: number;
+}
+
 export interface GameSector {
   id: number;
   name: { ko: string; en: string };
