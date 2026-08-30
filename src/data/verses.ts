@@ -519,11 +519,11 @@ export const VERSE_QUESTS: VerseQuest[] = [
     y: 78,
     reference: { ko: '고린도후서 4:5', en: '2 Corinthians 4:5' },
     text: {
-      ko: '우리는 우리를 전파하는 것이 아니라 오직 그리스도 예수의 주 되신 것과 또 예수를 위하여 우리가 너희의 종된 것을 전파함이라',
+      ko: '우리는 우리를 전파하는 것이 아니라 오직 그리스도 예수의 주 되신 것과 또 예수를 위하여 우리가 너희의 종 된 것을 전파함이라',
       en: 'For what we preach is not ourselves, but Jesus Christ as Lord, and ourselves as your servants for Jesus’ sake.'
     },
     orderTokens: {
-      ko: ['우리는 우리를', '전파하는 것이 아니라', '오직 그리스도 예수의', '주 되신 것과', '예수를 위하여', '우리가 너희의 종된 것을', '전파함이라'],
+      ko: ['우리는 우리를', '전파하는 것이 아니라', '오직 그리스도 예수의', '주 되신 것과', '예수를 위하여', '우리가 너희의 종 된 것을', '전파함이라'],
       en: ['For what we preach', 'is not ourselves,', 'but Jesus Christ as Lord,', 'and ourselves as your servants', 'for Jesus’ sake.']
     },
     hintInitial: { ko: '첫 시작: "우리는 우리를"', en: 'First token: "For what we preach"' },
@@ -625,7 +625,7 @@ export const VERSE_QUESTS: VerseQuest[] = [
     y: 22,
     reference: { ko: '베드로전서 3:18', en: '1 Peter 3:18' },
     text: {
-      ko: '그리스도께서도 단번에 죄를 위하여 죽으사 의인으로서 불의한 자를 대신하셨으니 이는 우리를 하나님 앞으로 인도하려 하심이라 육체로는 죽임을 당하시고 영으로는 살리심을 받았으니',
+      ko: '그리스도께서도 단번에 죄를 위하여 죽으사 의인으로서 불의한 자를 대신하셨으니 이는 우리를 하나님 앞으로 인도하려 하심이라 육체로는 죽임을 당하시고 영으로는 살리심을 받으셨으니',
       en: 'For Christ also suffered once for sins, the righteous for the unrighteous, to bring you to God. He was put to death in the body but made alive in the Spirit.'
     },
     multiBlank: {
@@ -687,7 +687,7 @@ export const VERSE_QUESTS: VerseQuest[] = [
     y: 48,
     reference: { ko: '디도서 3:5', en: 'Titus 3:5' },
     text: {
-      ko: '우리를 구원하시되 우리가 행한 바 의로운 행위로 말미암아 아니하고 오직 그의 긍휼하심을 따라 중생의 씻음과 성령의 새롭게 하심으로 하셨나니',
+      ko: '우리를 구원하시되 우리가 행한 바 의로운 행위로 말미암지 아니하고 오직 그의 긍휼하심을 따라 중생의 씻음과 성령의 새롭게 하심으로 하셨나니',
       en: 'he saved us, not because of righteous things we had done, but because of his mercy. He saved us through the washing of rebirth and renewal by the Holy Spirit,'
     },
     multiBlank: {
@@ -886,14 +886,14 @@ export const VERSE_QUESTS: VerseQuest[] = [
     y: 22,
     reference: { ko: '빌립보서 4:6-7', en: 'Philippians 4:6-7' },
     text: {
-      ko: '아무것도 염려하지 말고 다만 모든 일에 기도와 간구로, 너희 구할 것을 감사함으로 하나님께 아뢰라 그리하면 모든 지각에 뛰어난 하나님의 평강이 그리스도 예수 안에서 너희 마음과 생각을 지키시리라',
+      ko: '아무 것도 염려하지 말고 다만 모든 일에 기도와 간구로, 너희 구할 것을 감사함으로 하나님께 아뢰라 그리하면 모든 지각에 뛰어난 하나님의 평강이 그리스도 예수 안에서 너희 마음과 생각을 지키시리라',
       en: 'Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.'
     },
     typingTarget: {
-      ko: '아무것도 염려하지 말고 다만 모든 일에 기도와 간구로, 너희 구할 것을 감사함으로 하나님께 아뢰라 그리하면 모든 지각에 뛰어난 하나님의 평강이 그리스도 예수 안에서 너희 마음과 생각을 지키시리라',
+      ko: '아무 것도 염려하지 말고 다만 모든 일에 기도와 간구로, 너희 구할 것을 감사함으로 하나님께 아뢰라 그리하면 모든 지각에 뛰어난 하나님의 평강이 그리스도 예수 안에서 너희 마음과 생각을 지키시리라',
       en: 'Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.'
     },
-    hintInitial: { ko: '시작: "아무것도 염려하지 말고 다만 모든 일에 기도와 간구로..."', en: 'Starts with: "Do not be anxious about anything..."' },
+    hintInitial: { ko: '시작: "아무 것도 염려하지 말고 다만 모든 일에 기도와 간구로..."', en: 'Starts with: "Do not be anxious about anything..."' },
     hintElimination: { ko: '후반부: "...하나님의 평강이 그리스도 예수 안에서 너희 마음과 생각을 지키시리라"', en: 'Ending: "...will guard your hearts and your minds in Christ Jesus."' },
     hintWhisper: { ko: '염려 대신 감사함으로 기도할 때 주님의 평강이 마음을 지켜주십니다.', en: 'Turn anxiety into prayer with thanksgiving, and God’s peace will guard you.' }
   },
@@ -928,11 +928,11 @@ export const VERSE_QUESTS: VerseQuest[] = [
     y: 48,
     reference: { ko: '요한일서 2:15-16', en: '1 John 2:15-16' },
     text: {
-      ko: '이 세상이나 세상에 있는 것들을 사랑하지 말라 누구든지 세상을 사랑하면 아버지의 사랑이 그 안에 있지 아니하니 이는 세상에 있는 모든 것이 육신의 정욕과 안목의 정욕과 이생의 자랑이니 다 아버지로부터 온 것이 아니요 세상으로부터 온 것이라',
+      ko: '이 세상이나 세상에 있는 것들을 사랑하지 말라 누구든지 세상을 사랑하면 아버지의 사랑이 그 안에 있지 아니하니 이는 세상에 있는 모든 것이 육신의 정욕과 안목의 정욕과 이생의 자랑이니 다 아버지께로부터 온 것이 아니요 세상으로부터 온 것이라',
       en: 'Do not love the world or anything in the world. If anyone loves the world, love for the Father is not in them. For everything in the world—the lust of the flesh, the lust of the eyes, and the pride of life—comes not from the Father but from the world.'
     },
     typingTarget: {
-      ko: '이 세상이나 세상에 있는 것들을 사랑하지 말라 누구든지 세상을 사랑하면 아버지의 사랑이 그 안에 있지 아니하니 이는 세상에 있는 모든 것이 육신의 정욕과 안목의 정욕과 이생의 자랑이니 다 아버지로부터 온 것이 아니요 세상으로부터 온 것이라',
+      ko: '이 세상이나 세상에 있는 것들을 사랑하지 말라 누구든지 세상을 사랑하면 아버지의 사랑이 그 안에 있지 아니하니 이는 세상에 있는 모든 것이 육신의 정욕과 안목의 정욕과 이생의 자랑이니 다 아버지께로부터 온 것이 아니요 세상으로부터 온 것이라',
       en: 'Do not love the world or anything in the world. If anyone loves the world, love for the Father is not in them. For everything in the world—the lust of the flesh, the lust of the eyes, and the pride of life—comes not from the Father but from the world.'
     },
     hintInitial: { ko: '시작: "이 세상이나 세상에 있는 것들을 사랑하지 말라..."', en: 'Starts with: "Do not love the world..."' },
