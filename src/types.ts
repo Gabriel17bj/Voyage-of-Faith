@@ -83,6 +83,31 @@ export interface QuestResult {
   solvedAt: number;
 }
 
+export interface VerseReviewRecord {
+  lastReviewedAt: string;
+  correctCount: number;
+  attemptCount: number;
+  bestStars: number;
+}
+
+export interface PlayerProgress {
+  userId?: string;
+  playerProfile: PlayerProfile;
+  quests: VerseQuest[];
+  solvedQuestIds: number[];
+  questStars: { [questId: number]: number };
+  hints: {
+    magnifier: number;
+    hourglass: number;
+    whisper: number;
+  };
+  totalHintsUsed: number;
+  elapsedTimeMs: number;
+  currentSectorId: number;
+  verseReviewHistory: { [questId: number]: VerseReviewRecord };
+  updatedAt: string;
+}
+
 export interface GameSector {
   id: number;
   name: { ko: string; en: string };

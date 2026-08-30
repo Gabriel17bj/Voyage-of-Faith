@@ -64,6 +64,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   // General feedback state
   const [statusMessage, setStatusMessage] = useState<{ type: 'error' | 'hint' | 'success'; text: string } | null>(null);
   const [isSolvedAnim, setIsSolvedAnim] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [attemptFailCount, setAttemptFailCount] = useState<number>(0);
   const [earnedStars, setEarnedStars] = useState<1 | 2 | 3>(3);
   const [showWhisperBubble, setShowWhisperBubble] = useState<boolean>(false);
 
@@ -71,6 +73,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   useEffect(() => {
     setStatusMessage(null);
     setIsSolvedAnim(false);
+    setIsSubmitting(false);
+    setAttemptFailCount(0);
     setShowWhisperBubble(false);
     setEliminatedOptions([]);
     setQuestHintsUsed(0);
@@ -151,8 +155,10 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     setStatusMessage(null);
   };
 
-  // Verification Logic with Child-Friendly Positive Feedback
+  // Verification Logic with Child-Friendly Positive Feedback & Adaptive Assist
   const handleVerify = () => {
+    if (isSubmitting || isSolvedAnim) return;
+
     let isCorrect = false;
 
     if ((quest.level === 1 || quest.singleBlank) && quest.singleBlank) {
@@ -182,13 +188,14 @@ export const QuestModal: React.FC<QuestModalProps> = ({
     }
 
     if (isCorrect) {
+      setIsSubmitting(true);
       sounds.playCorrect();
       setIsSolvedAnim(true);
 
       // Calculate Stars: 0 hints = 3 stars, 1 hint = 2 stars, 2+ hints = 1 star
       let stars: 1 | 2 | 3 = 3;
-      if (questHintsUsed === 1) stars = 2;
-      if (questHintsUsed >= 2) stars = 1;
+      if (questHintsUsed === 1 || attemptFailCount === 1) stars = 2;
+      if (questHintsUsed >= 2 || attemptFailCount >= 2) stars = 1;
       setEarnedStars(stars);
 
       const starFeedback = stars === 3
@@ -200,18 +207,98 @@ export const QuestModal: React.FC<QuestModalProps> = ({
       setStatusMessage({ type: 'success', text: starFeedback });
       setTimeout(() => {
         onSolve(quest.id, stars);
-      }, 1300);
+      }, 1100);
     } else {
       sounds.playWrong();
-      // Friendly, encouraging failure feedback (No negative punishment)
-      const friendlyTips = [
-        '괜찮아요! 힌트 도구를 사용하거나 다시 시도해 보세요 ⛵',
-        '거의 다 왔어요! 알맞은 단어 카드를 다시 골라볼까요? ✨',
-        '힌트를 사용해도 항해는 멋지게 계속할 수 있어요 🕊️',
-      ];
-      const randomTip = friendlyTips[Math.floor(Math.random() * friendlyTips.length)];
-      setStatusMessage({ type: 'error', text: randomTip });
+      const nextFail = attemptFailCount + 1;
+      setAttemptFailCount(nextFail);
+
+      // Progressive Tiered Feedback
+      if (nextFail === 1) {
+        // Tier 1: Gentle clue on the first part
+        if (quest.level === 1 && quest.singleBlank) {
+          const firstLetter = quest.singleBlank.answer[language].charAt(0);
+          setStatusMessage({
+            type: 'hint',
+            text: `💡 힌트: 정답은 '${firstLetter}'(으)로 시작하는 단어예요!`
+          });
+        } else if (quest.level === 2 && quest.orderTokens) {
+          const firstWord = quest.orderTokens[language][0];
+          setStatusMessage({
+            type: 'hint',
+            text: `💡 힌트: 첫 번째 단어는 [${firstWord}]입니다!`
+          });
+        } else {
+          setStatusMessage({
+            type: 'error',
+            text: '괜찮아요! 아래 힌트 도구나 단어 카드를 참고해 다시 맞춰보세요 ⛵'
+          });
+        }
+      } else if (nextFail === 2) {
+        // Tier 2: Structural help
+        if (quest.level === 1 && quest.singleBlank) {
+          const optsPool = shuffledOptions.length > 0 ? shuffledOptions : quest.singleBlank.options[language];
+          const wrong = optsPool.filter((opt) => opt !== quest.singleBlank?.answer[language]);
+          setEliminatedOptions(wrong.slice(0, 1));
+          setStatusMessage({
+            type: 'hint',
+            text: '💡 오답 카드 1개를 걷어냈어요! 남은 카드를 살펴보세요 ✨'
+          });
+        } else if (quest.level === 2 && quest.orderTokens) {
+          const correctTokens = quest.orderTokens[language];
+          const curIdx = selectedTokens.length;
+          const nextTarget = correctTokens[curIdx] || correctTokens[0];
+          setStatusMessage({
+            type: 'hint',
+            text: `💡 다음 알맞은 단어는 [${nextTarget}]입니다!`
+          });
+        } else {
+          setStatusMessage({
+            type: 'hint',
+            text: `🕊️ [${fam.name[language]}의 가이드] ${quest.hintWhisper[language]}`
+          });
+        }
+      } else {
+        // Tier 3: Direct resolution assist
+        setStatusMessage({
+          type: 'hint',
+          text: '🌿 어려우신가요? 아래 [도우미로 완성하기]를 누르면 함께 완성할 수 있어요!'
+        });
+      }
     }
+  };
+
+  // Auto-fill solution for kids needing gentle assistance (guarantees participation star)
+  const handleAutoAssistSolve = () => {
+    sounds.playCorrect();
+    setIsSubmitting(true);
+    setIsSolvedAnim(true);
+    setEarnedStars(1);
+
+    if (quest.level === 1 && quest.singleBlank) {
+      setSelectedOption(quest.singleBlank.answer[language]);
+    } else if (quest.level === 2 && quest.orderTokens) {
+      setSelectedTokens([...quest.orderTokens[language]]);
+      setAvailableTokens([]);
+    } else if (quest.level === 3 && quest.multiBlank) {
+      const answers = quest.multiBlank.answers[language];
+      const filled: { [idx: number]: string } = {};
+      answers.forEach((ans, idx) => {
+        filled[idx] = ans;
+      });
+      setMultiSlots(filled);
+    } else if ((quest.level === 4 || quest.level === 5) && quest.typingTarget) {
+      setTypedText(quest.typingTarget[language]);
+    }
+
+    setStatusMessage({
+      type: 'success',
+      text: '🎉 믿음으로 함께 말씀을 완성했어요! (참여 별 ⭐)'
+    });
+
+    setTimeout(() => {
+      onSolve(quest.id, 1);
+    }, 1100);
   };
 
   // Hint 1: Magnifier
@@ -725,20 +812,33 @@ export const QuestModal: React.FC<QuestModalProps> = ({
         {/* ========================================================= */}
         {/* 3. FIXED BOTTOM PRIMARY CTA (Safe Area Aware) */}
         {/* ========================================================= */}
-        <div className="relative z-10 border-t border-slate-800 bg-[#050f1d]/95 px-4 py-3 pb-[calc(14px+env(safe-area-inset-bottom))] backdrop-blur shrink-0">
+        <div className="relative z-10 border-t border-slate-800 bg-[#050f1d]/95 px-4 py-3 pb-[calc(14px+env(safe-area-inset-bottom))] backdrop-blur shrink-0 flex flex-col gap-2">
+          {attemptFailCount >= 3 && !isSolvedAnim && (
+            <motion.button
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              whileTap={{ scale: 0.97 }}
+              type="button"
+              onClick={handleAutoAssistSolve}
+              className="min-h-[44px] w-full rounded-xl bg-amber-500/20 border-2 border-amber-400 text-amber-200 text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 shadow active:bg-amber-500/30 cursor-pointer"
+            >
+              <span>🌿 도우미와 함께 말씀 완성하기 (참여 별 1개 ⭐)</span>
+            </motion.button>
+          )}
+
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={handleVerify}
-            disabled={isSolvedAnim}
+            disabled={isSolvedAnim || isSubmitting}
             className={`min-h-[50px] w-full rounded-2xl font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer ${
-              isSolvedAnim
+              isSolvedAnim || isSubmitting
                 ? 'bg-emerald-500 text-white shadow-emerald-500/40 animate-pulse'
                 : quest.level === 5
                 ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-500/40'
                 : 'bg-sky-500 hover:bg-sky-400 text-slate-950 font-black shadow-sky-500/30'
             }`}
           >
-            {isSolvedAnim ? (
+            {isSolvedAnim || isSubmitting ? (
               <>
                 <CheckCircle className="w-5 h-5" />
                 <span>정답 확인 완료! 별 획득 중...</span>

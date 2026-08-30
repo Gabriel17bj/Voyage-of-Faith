@@ -24,6 +24,11 @@ class SoundEngine {
   }
 
   public playTap() {
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate(10);
+      } catch {}
+    }
     if (this.isMuted) return;
     try {
       this.initCtx();
@@ -49,6 +54,11 @@ class SoundEngine {
   }
 
   public playChip() {
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate(8);
+      } catch {}
+    }
     if (this.isMuted) return;
     try {
       this.initCtx();
@@ -72,6 +82,11 @@ class SoundEngine {
   }
 
   public playCorrect() {
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate([30, 40, 30]);
+      } catch {}
+    }
     if (this.isMuted) return;
     try {
       this.initCtx();

@@ -10,7 +10,9 @@ import {
   Language, 
   LeaderboardEntry, 
   PlayerProfile, 
-  VerseQuest 
+  VerseQuest,
+  VerseReviewRecord,
+  PlayerProgress 
 } from './types';
 import { FAM_LIST, SECTOR_LIST, VERSE_QUESTS, getRandomizedQuests } from './data/verses';
 import { UI_TEXT } from './data/translations';
@@ -22,8 +24,14 @@ import { CertificateModal } from './components/CertificateModal';
 import { RulesModal } from './components/RulesModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CreditsModal } from './components/CreditsModal';
+import { ParentReportModal } from './components/ParentReportModal';
 import { BgmPlayer } from './components/BgmPlayer';
 import { sounds } from './utils/audio';
+import { 
+  loadSavedProgress, 
+  saveSavedProgress, 
+  clearSavedProgress 
+} from './utils/storage';
 import { AnimatePresence } from 'motion/react';
 
 const STORAGE_KEY_LEADERBOARD = 'VOYAGE_OF_FAITH_LEADERBOARD_V1';
@@ -51,18 +59,23 @@ export default function App() {
     whisper: 5,
   });
   const [totalHintsUsed, setTotalHintsUsed] = useState<number>(0);
+  const [verseReviewHistory, setVerseReviewHistory] = useState<{ [questId: number]: VerseReviewRecord }>({});
 
   // Modals
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const [showRules, setShowRules] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showCredits, setShowCredits] = useState<boolean>(false);
+  const [showParentReport, setShowParentReport] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
   // Time Attack Timer (ms)
   const [elapsedTimeMs, setElapsedTimeMs] = useState<number>(0);
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
+
+  // Saved Progress check for Start Screen
+  const [savedProgress, setSavedProgress] = useState<PlayerProgress | null>(() => loadSavedProgress());
 
   // Leaderboard data (Starts empty, records saved upon completing game)
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(() => {
@@ -96,6 +109,37 @@ export default function App() {
       setCurrentSectorId(quest.sectorId);
     }
   }, [quests, activeQuestId]);
+
+  // Auto-Save progress to localStorage when playing
+  useEffect(() => {
+    if (gameState === 'playing' && (solvedQuestIds.length > 0 || totalHintsUsed > 0)) {
+      const currentProgress: PlayerProgress = {
+        playerProfile,
+        quests,
+        solvedQuestIds,
+        questStars,
+        hints,
+        totalHintsUsed,
+        elapsedTimeMs,
+        currentSectorId,
+        verseReviewHistory,
+        updatedAt: new Date().toISOString(),
+      };
+      saveSavedProgress(currentProgress);
+      setSavedProgress(currentProgress);
+    }
+  }, [
+    gameState,
+    playerProfile,
+    quests,
+    solvedQuestIds,
+    questStars,
+    hints,
+    totalHintsUsed,
+    elapsedTimeMs,
+    currentSectorId,
+    verseReviewHistory,
+  ]);
 
   // Timer Tick
   useEffect(() => {
@@ -139,7 +183,8 @@ export default function App() {
 
   // Start Game Handler (Fresh Randomization)
   const handleStartGame = (profile: PlayerProfile) => {
-    setQuests(getRandomizedQuests());
+    const freshQuests = getRandomizedQuests();
+    setQuests(freshQuests);
     setPlayerProfile(profile);
     setLanguage(profile.language);
     setSolvedQuestIds([]);
@@ -147,7 +192,27 @@ export default function App() {
     setElapsedTimeMs(0);
     setTotalHintsUsed(0);
     setHints({ magnifier: 5, hourglass: 5, whisper: 5 });
+    setVerseReviewHistory({});
     setCurrentSectorId(1);
+    setActiveModalQuestId(null);
+    setGameState('playing');
+  };
+
+  // Resume Saved Game Handler
+  const handleResumeGame = () => {
+    if (!savedProgress) return;
+    setPlayerProfile(savedProgress.playerProfile);
+    setLanguage(savedProgress.playerProfile.language || 'ko');
+    if (savedProgress.quests && savedProgress.quests.length > 0) {
+      setQuests(savedProgress.quests);
+    }
+    setSolvedQuestIds(savedProgress.solvedQuestIds || []);
+    setQuestStars(savedProgress.questStars || {});
+    setHints(savedProgress.hints || { magnifier: 5, hourglass: 5, whisper: 5 });
+    setTotalHintsUsed(savedProgress.totalHintsUsed || 0);
+    setElapsedTimeMs(savedProgress.elapsedTimeMs || 0);
+    setCurrentSectorId(savedProgress.currentSectorId || 1);
+    setVerseReviewHistory(savedProgress.verseReviewHistory || {});
     setActiveModalQuestId(null);
     setGameState('playing');
   };
@@ -158,12 +223,26 @@ export default function App() {
     setPlayerProfile((prev) => ({ ...prev, fam: famId }));
   };
 
-  // Quest Solved Handler with 3-Star Rating
+  // Quest Solved Handler with 3-Star Rating and Review History Tracking
   const handleQuestSolved = (questId: number, starsEarned: 1 | 2 | 3) => {
     setQuestStars((prev) => ({
       ...prev,
       [questId]: Math.max(prev[questId] || 0, starsEarned),
     }));
+
+    // Update Spaced Repetition History
+    setVerseReviewHistory((prev) => {
+      const existing = prev[questId];
+      return {
+        ...prev,
+        [questId]: {
+          lastReviewedAt: new Date().toISOString(),
+          attemptCount: (existing?.attemptCount || 0) + 1,
+          correctCount: (existing?.correctCount || 0) + 1,
+          bestStars: Math.max(existing?.bestStars || 0, starsEarned),
+        },
+      };
+    });
 
     setSolvedQuestIds((prev) => {
       const next = prev.includes(questId) ? prev : [...prev, questId];
@@ -224,6 +303,18 @@ export default function App() {
     } catch {}
   };
 
+  // Reset all progress
+  const handleResetProgressData = () => {
+    clearSavedProgress();
+    setSavedProgress(null);
+    setSolvedQuestIds([]);
+    setQuestStars({});
+    setVerseReviewHistory({});
+    setElapsedTimeMs(0);
+    setTotalHintsUsed(0);
+    setGameState('start');
+  };
+
   // Sound Toggle
   const handleToggleSound = () => {
     const muted = sounds.toggleMute();
@@ -261,6 +352,20 @@ export default function App() {
               onOpenRules={() => setShowRules(true)}
               onOpenSettings={() => setShowSettings(true)}
               onOpenCredits={() => setShowCredits(true)}
+              hasSavedProgress={Boolean(savedProgress && savedProgress.solvedQuestIds.length > 0)}
+              savedProgressStats={
+                savedProgress
+                  ? {
+                      stars: Object.values(savedProgress.questStars || {}).reduce<number>(
+                        (a, b) => a + (typeof b === 'number' ? b : 0),
+                        0
+                      ),
+                      completedCount: savedProgress.solvedQuestIds.length,
+                    }
+                  : undefined
+              }
+              onResumeGame={handleResumeGame}
+              onOpenParentReport={() => setShowParentReport(true)}
             />
           </div>
         )}
@@ -363,6 +468,24 @@ export default function App() {
             <CreditsModal
               onClose={() => setShowCredits(false)}
               language={language}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Parent & Teacher Report Modal */}
+        <AnimatePresence>
+          {showParentReport && (
+            <ParentReportModal
+              onClose={() => setShowParentReport(false)}
+              language={language}
+              playerName={playerProfile.name}
+              quests={quests}
+              solvedQuestIds={solvedQuestIds}
+              questStars={questStars}
+              totalHintsUsed={totalHintsUsed}
+              elapsedTimeFormatted={formatTime(elapsedTimeMs)}
+              verseReviewHistory={verseReviewHistory}
+              onResetProgress={handleResetProgressData}
             />
           )}
         </AnimatePresence>

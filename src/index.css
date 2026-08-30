@@ -14,6 +14,26 @@
   }
 }
 
+.game-button {
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+  touch-action: manipulation;
+}
+
+.game-button:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* RPG Pixel & Retro Styling */
 .pixel-art {
   image-rendering: pixelated;
