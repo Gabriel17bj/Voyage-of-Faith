@@ -26,6 +26,7 @@ interface QuestModalProps {
   totalQuestsCount: number;
   isAlreadySolved?: boolean;
   previousStars?: number;
+  onWrongAnswer?: (questId: number) => void;
 }
 
 export const QuestModal: React.FC<QuestModalProps> = ({
@@ -39,6 +40,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   totalQuestsCount,
   isAlreadySolved = false,
   previousStars = 0,
+  onWrongAnswer,
 }) => {
   const t = UI_TEXT[language];
 
@@ -210,6 +212,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
       }, 1100);
     } else {
       sounds.playWrong();
+      onWrongAnswer?.(quest.id);
       const nextFail = attemptFailCount + 1;
       setAttemptFailCount(nextFail);
 

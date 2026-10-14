@@ -36,6 +36,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const [playerName, setPlayerName] = useState<string>('다윗');
   const [selectedHeroId, setSelectedHeroId] = useState<CharacterId>('sailor_boy');
   const [selectedPetId, setSelectedPetId] = useState<string>('lamb');
+  const [classCode, setClassCode] = useState<string>('');
 
   const handleOpenSetup = () => {
     sounds.playTap();
@@ -46,11 +47,13 @@ export const StartScreen: React.FC<StartScreenProps> = ({
     e.preventDefault();
     sounds.playTap();
     const finalName = playerName.trim() || (language === 'ko' ? '믿음의 용사' : 'Faith Warrior');
+    const cleanClassCode = classCode.trim().toUpperCase();
     onStartGame({
       name: finalName,
       fam: (selectedPetId === 'lamb' ? 'shalom' : selectedPetId === 'turtle' ? 'wisdom' : 'agape') as FamId,
       characterId: selectedHeroId,
       language,
+      classCode: cleanClassCode || undefined,
     });
   };
 
@@ -401,8 +404,21 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <span>크레딧</span>
         </button>
 
+        {/* Teacher Mode Button (주소 뒤 /#/teacher 로 이동) */}
+        <button
+          onClick={() => {
+            sounds.playTap();
+            window.location.hash = '#/teacher';
+          }}
+          className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-90 hover:opacity-100 shadow active:scale-95 text-amber-300 border-amber-500/60"
+          title="교사 대시보드 (수업 관리 및 실시간 순위)"
+        >
+          <ShieldCheck className="w-3 h-3 text-amber-300 shrink-0" />
+          <span>교사 대시보드</span>
+        </button>
+
         {/* Developer Credit Note */}
-        <div className="w-full text-center -mt-0.5 sm:mt-0">
+        <div className="w-full text-center -mt-0.5 sm:mt-0 flex items-center justify-center gap-2">
           <span className="text-[9px] sm:text-[10px] text-sky-200/60 font-medium tracking-wide">
             Developed by <strong className="text-amber-200/90 font-bold">Gabriel Byeongje Jeon</strong>
           </span>
@@ -452,6 +468,25 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                     placeholder="예: 다윗, 에스더, 바울, 요셉"
                     maxLength={12}
                     className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-xs font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Class Code Input (선생님이 알려주신 5자리 수업 코드) */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-amber-200 flex items-center gap-1">
+                      <span>수업 코드</span>
+                      <span className="text-[9px] font-normal text-slate-400">(선택)</span>
+                    </label>
+                    <span className="text-[9px] text-sky-300">선생님이 알려주신 5자리 코드</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={classCode}
+                    onChange={(e) => setClassCode(e.target.value.toUpperCase().slice(0, 5))}
+                    placeholder="예: FAITH (비워두면 개인 단독 플레이)"
+                    maxLength={5}
+                    className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-amber-300 font-mono text-xs font-bold tracking-widest uppercase focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                 </div>
 

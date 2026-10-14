@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: Any authenticated user (including anonymous students)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Check if user is a teacher (authenticated via email/password or email matches)
+    function isTeacher() {
+      return request.auth != null && (
+        request.auth.token.firebase.sign_in_provider == 'password' ||
+        request.auth.token.email != null
+      );
+    }
+
+    // Classrooms collection
+    // Document ID is the 5-character classCode (e.g., 'FAITH')
+    match /classrooms/{classCode} {
+      // Any student can read class metadata (to check if valid or closed)
+      allow read: if isAuthenticated();
+      
+      // Teachers can create and manage their classrooms
+      allow create, update, delete: if isTeacher();
+
+      // Student sessions subcollection inside classroom
+      // /classrooms/{classCode}/students/{studentId}
+      match /students/{studentId} {
+        // Students in the class and teachers can read leaderboard and stats
+        allow read: if isAuthenticated();
+
+        // Student can create or update their own record with sane limits
+        allow create, update: if isAuthenticated() && (
+          // Own session or teacher
+          (request.auth.uid == studentId || isTeacher()) &&
+          // Validate score and quest boundaries
+          (
+            !('score' in request.resource.data) ||
+            (request.resource.data.score is number &&
+             request.resource.data.score >= 0 &&
+             request.resource.data.score <= 20000)
+          ) &&
+          (
+            !('solvedCount' in request.resource.data) ||
+            (request.resource.data.solvedCount is number &&
+             request.resource.data.solvedCount >= 0 &&
+             request.resource.data.solvedCount <= 36)
+          )
+        );
+
+        // Teacher can delete/reset student records
+        allow delete: if isTeacher();
+      }
+    }
+  }
+}

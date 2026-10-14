@@ -26,18 +26,39 @@ import { SettingsModal } from './components/SettingsModal';
 import { CreditsModal } from './components/CreditsModal';
 import { ParentReportModal } from './components/ParentReportModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
+import { TeacherDashboard } from './components/TeacherDashboard';
 import { BgmPlayer } from './components/BgmPlayer';
 import { sounds } from './utils/audio';
+import { calculateScore, getRankTier } from './utils/score';
+import { joinClassroom, updateStudentProgress, sendHeartbeat } from './utils/cloud';
 import { 
   loadSavedProgress, 
   saveSavedProgress, 
   clearSavedProgress 
 } from './utils/storage';
 import { AnimatePresence } from 'motion/react';
+import { Trophy, Star, ShieldCheck } from 'lucide-react';
 
 const STORAGE_KEY_LEADERBOARD = 'VOYAGE_OF_FAITH_LEADERBOARD_V1';
 
 export default function App() {
+  // Routing State (#/teacher for Teacher Dashboard)
+  const [route, setRoute] = useState<'game' | 'teacher'>(() => {
+    return window.location.hash.startsWith('#/teacher') ? 'teacher' : 'game';
+  });
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash.startsWith('#/teacher')) {
+        setRoute('teacher');
+      } else {
+        setRoute('game');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   const [gameState, setGameState] = useState<'start' | 'playing' | 'completed'>('start');
   const [language, setLanguage] = useState<Language>('ko');
   const [playerProfile, setPlayerProfile] = useState<PlayerProfile>({
@@ -60,6 +81,8 @@ export default function App() {
     whisper: 5,
   });
   const [totalHintsUsed, setTotalHintsUsed] = useState<number>(0);
+  const [wrongAnswersCount, setWrongAnswersCount] = useState<number>(0);
+  const [wrongQuestCounts, setWrongQuestCounts] = useState<{ [questId: string]: number }>({});
   const [verseReviewHistory, setVerseReviewHistory] = useState<{ [questId: number]: VerseReviewRecord }>({});
 
   // Modals
@@ -94,6 +117,30 @@ export default function App() {
   const currentFamInfo = useMemo(() => {
     return FAM_LIST.find((f) => f.id === playerProfile.fam) || FAM_LIST[0];
   }, [playerProfile.fam]);
+
+  // Total stars earned across all quests
+  const totalStars = useMemo(() => {
+    return Object.values(questStars).reduce<number>((acc, curr) => acc + (typeof curr === 'number' ? curr : 0), 0);
+  }, [questStars]);
+
+  // Realtime Calculated Score
+  const currentScore = useMemo(() => {
+    return calculateScore({
+      solvedCount: solvedQuestIds.length,
+      totalStars,
+      hintsUsed: totalHintsUsed,
+      wrongAnswersCount,
+      elapsedTimeMs,
+      isCompleted: gameState === 'completed',
+    });
+  }, [
+    solvedQuestIds.length,
+    totalStars,
+    totalHintsUsed,
+    wrongAnswersCount,
+    elapsedTimeMs,
+    gameState,
+  ]);
 
   // Determine active/next recommended quest
   const activeQuestId = useMemo(() => {
@@ -165,6 +212,49 @@ export default function App() {
     };
   }, [gameState]);
 
+  // 30-Second Heartbeat to Cloud if in class
+  useEffect(() => {
+    if (gameState !== 'playing' || !playerProfile.classCode) return;
+
+    const interval = window.setInterval(() => {
+      sendHeartbeat(playerProfile.classCode!);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [gameState, playerProfile.classCode]);
+
+  // Debounced Cloud Sync on progress updates
+  useEffect(() => {
+    if (gameState === 'start' || !playerProfile.classCode) return;
+
+    const timeout = setTimeout(() => {
+      updateStudentProgress(playerProfile.classCode!, {
+        score: currentScore,
+        solvedCount: solvedQuestIds.length,
+        solvedQuestIds,
+        totalStars,
+        hintsUsed: totalHintsUsed,
+        wrongAnswersCount,
+        wrongQuestCounts,
+        currentQuestId: activeModalQuestId,
+        elapsedTimeMs,
+        isCompleted: gameState === 'completed',
+        completedAt: gameState === 'completed' ? Date.now() : undefined,
+      });
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [
+    playerProfile.classCode,
+    gameState,
+    currentScore,
+    solvedQuestIds.length,
+    totalStars,
+    totalHintsUsed,
+    wrongAnswersCount,
+    activeModalQuestId,
+  ]);
+
   // Format Milliseconds as MM:SS.SS
   const formatTime = (ms: number): string => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -179,13 +269,8 @@ export default function App() {
     return `${mStr}:${sStr}.${hStr}`;
   };
 
-  // Total stars earned across all quests
-  const totalStars = useMemo(() => {
-    return Object.values(questStars).reduce<number>((acc, curr) => acc + (typeof curr === 'number' ? curr : 0), 0);
-  }, [questStars]);
-
-  // Start Game Handler (Fresh Randomization)
-  const handleStartGame = (profile: PlayerProfile) => {
+  // Start Game Handler (Fresh Randomization & Cloud Classroom Join)
+  const handleStartGame = async (profile: PlayerProfile) => {
     const freshQuests = getRandomizedQuests();
     setQuests(freshQuests);
     setPlayerProfile(profile);
@@ -194,11 +279,25 @@ export default function App() {
     setQuestStars({});
     setElapsedTimeMs(0);
     setTotalHintsUsed(0);
+    setWrongAnswersCount(0);
+    setWrongQuestCounts({});
     setHints({ magnifier: 5, hourglass: 5, whisper: 5 });
     setVerseReviewHistory({});
     setCurrentSectorId(1);
     setActiveModalQuestId(null);
     setGameState('playing');
+
+    // If student entered a classCode, register into classroom
+    if (profile.classCode) {
+      try {
+        const res = await joinClassroom(profile.classCode, profile, 0);
+        if (!res.success && res.error) {
+          console.warn('[Classroom Join Note]', res.error);
+        }
+      } catch (err) {
+        console.warn('[Classroom Join Error]', err);
+      }
+    }
   };
 
   // Resume Saved Game Handler
@@ -258,6 +357,18 @@ export default function App() {
     setActiveModalQuestId(null);
   };
 
+  // Wrong Answer Handler (Recorded for teacher dashboard & review)
+  const handleWrongAnswer = (questId: number) => {
+    setWrongAnswersCount((prev) => prev + 1);
+    setWrongQuestCounts((prev) => {
+      const qKey = String(questId);
+      return {
+        ...prev,
+        [qKey]: (prev[qKey] || 0) + 1,
+      };
+    });
+  };
+
   // Final Escape Victory & Leaderboard Save
   const handleFinalEscape = () => {
     setGameState('completed');
@@ -287,6 +398,16 @@ export default function App() {
       } catch {}
       return updated;
     });
+
+    // Cloud final update
+    if (playerProfile.classCode) {
+      updateStudentProgress(playerProfile.classCode, {
+        isCompleted: true,
+        completedAt: Date.now(),
+        score: currentScore,
+        solvedCount: quests.length,
+      });
+    }
   };
 
   // Hint Deduction
@@ -315,6 +436,8 @@ export default function App() {
     setVerseReviewHistory({});
     setElapsedTimeMs(0);
     setTotalHintsUsed(0);
+    setWrongAnswersCount(0);
+    setWrongQuestCounts({});
     setGameState('start');
   };
 
@@ -323,6 +446,11 @@ export default function App() {
     const muted = sounds.toggleMute();
     setIsMuted(muted);
   };
+
+  // ROUTE: TEACHER DASHBOARD (주소 뒤 /#/teacher)
+  if (route === 'teacher') {
+    return <TeacherDashboard />;
+  }
 
   const activeQuestData = quests.find((q) => q.id === activeModalQuestId);
 
@@ -337,6 +465,28 @@ export default function App() {
           onToggleMute={handleToggleSound}
         />
       </div>
+
+      {/* Realtime Score HUD Badge (Fixed Left Bottom during Play) */}
+      {gameState === 'playing' && (
+        <div className="fixed bottom-3 left-3 z-30 pointer-events-none sm:pointer-events-auto transition-transform hover:scale-105">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/90 border border-amber-500/50 backdrop-blur-md shadow-2xl text-slate-100">
+            <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-xs border border-amber-400/30">
+              🏆
+            </div>
+            <div>
+              <span className="text-[9px] text-amber-300/80 font-bold block leading-none">점수 (SCORE)</span>
+              <span className="text-sm sm:text-base font-black text-amber-300 font-mono tracking-tight leading-none">
+                {currentScore.toLocaleString()}점
+              </span>
+            </div>
+            {playerProfile.classCode && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-bold border border-blue-400/30">
+                {playerProfile.classCode}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Container - Fixed Scale Gameplay Viewport */}
       <div className="w-full max-w-[1240px] h-full max-h-full flex flex-col items-center justify-center overflow-hidden">
@@ -413,11 +563,12 @@ export default function App() {
               totalQuestsCount={quests.length}
               isAlreadySolved={solvedQuestIds.includes(activeQuestData.id)}
               previousStars={questStars[activeQuestData.id] || 0}
+              onWrongAnswer={handleWrongAnswer}
             />
           )}
         </AnimatePresence>
 
-        {/* Leaderboard Modal */}
+        {/* Leaderboard Modal (Supports Our Class & Hall of Fame) */}
         <AnimatePresence>
           {showLeaderboard && (
             <LeaderboardModal
@@ -425,6 +576,8 @@ export default function App() {
               onClose={() => setShowLeaderboard(false)}
               onClearLeaderboard={handleClearLeaderboard}
               language={language}
+              classCode={playerProfile.classCode}
+              currentStudentName={playerProfile.name}
             />
           )}
         </AnimatePresence>
@@ -536,4 +689,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -74,6 +74,36 @@ export interface PlayerProfile {
   fam: FamId;
   characterId?: string;
   language: Language;
+  classCode?: string;
+}
+
+export interface StudentSession {
+  id: string; // Firebase Auth UID or local random id
+  classCode: string;
+  studentName: string;
+  famId: FamId;
+  characterId?: string;
+  score: number;
+  solvedCount: number;
+  solvedQuestIds: number[];
+  totalStars: number;
+  hintsUsed: number;
+  wrongAnswersCount: number;
+  wrongQuestCounts?: { [questId: string]: number }; // questId -> wrong attempt count
+  currentQuestId: number | null;
+  elapsedTimeMs: number;
+  lastActiveAt: number; // Unix timestamp ms
+  isOnline: boolean;
+  isCompleted: boolean;
+  completedAt?: number;
+}
+
+export interface Classroom {
+  code: string; // 5-letter code (e.g., 'FAITH')
+  title: string;
+  teacherEmail: string;
+  createdAt: number;
+  isClosed?: boolean;
 }
 
 export interface QuestResult {
