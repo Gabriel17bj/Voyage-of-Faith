@@ -37,7 +37,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
   // Subscribe to classroom real-time ranking when class tab is active or classCode is provided
   useEffect(() => {
-    if (!classCode || !isFirebaseConfigured()) {
+    if (!classCode) {
       setIsLoadingClass(false);
       return;
     }

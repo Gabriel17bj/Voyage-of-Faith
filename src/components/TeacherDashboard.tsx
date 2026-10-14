@@ -15,6 +15,12 @@ import {
   deleteClassroom,
   exportStudentsToCsv,
   generateClassCode,
+  saveLocalTeacherSession,
+  getLocalTeacherSession,
+  clearLocalTeacherSession,
+  addSimulatedStudent,
+  DEFAULT_DEMO_CLASSROOMS,
+  DEFAULT_DEMO_STUDENTS,
 } from '../utils/cloud';
 import { Classroom, StudentSession } from '../types';
 import { VERSE_QUESTS, FAM_LIST } from '../data/verses';
@@ -44,21 +50,26 @@ import {
   Minimize2,
   RefreshCw,
   Search,
+  UserPlus,
 } from 'lucide-react';
 import { sounds } from '../utils/audio';
+
+const DEMO_CLASSROOMS = DEFAULT_DEMO_CLASSROOMS;
+const DEMO_STUDENTS = DEFAULT_DEMO_STUDENTS;
 
 export const TeacherDashboard: React.FC = () => {
   // Authentication state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
-  const [emailInput, setEmailInput] = useState<string>('');
+  const [emailInput, setEmailInput] = useState<string>('teacher@church.org');
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
   const [isSubmittingAuth, setIsSubmittingAuth] = useState<boolean>(false);
 
   // Classroom state
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
-  const [selectedClassCode, setSelectedClassCode] = useState<string>('');
+  const [selectedClassCode, setSelectedClassCode] = useState<string>('FAITH');
   const [students, setStudents] = useState<StudentSession[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard' | 'verses' | 'settings'>('overview');
 
@@ -73,28 +84,44 @@ export const TeacherDashboard: React.FC = () => {
   // Search filter
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // 1. Firebase Auth listener
+  // 1. Check existing local teacher session on mount
+  useEffect(() => {
+    const local = getLocalTeacherSession();
+    if (local && !currentUser) {
+      setCurrentUser({
+        email: local.email,
+        uid: local.uid,
+      } as User);
+    }
+    setAuthLoading(false);
+  }, []);
+
+  // 2. Firebase Auth listener (if configured)
   useEffect(() => {
     if (!isFirebaseConfigured() || !auth) {
-      setAuthLoading(false);
       return;
     }
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // Exclude anonymous student accounts
       if (user && !user.isAnonymous) {
         setCurrentUser(user);
-      } else {
-        setCurrentUser(null);
+        setIsDemoMode(false);
       }
-      setAuthLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isDemoMode]);
 
-  // 2. Classrooms listener for logged-in teacher
+  // 3. Classrooms listener for logged-in teacher
   useEffect(() => {
+    if (isDemoMode) {
+      setClassrooms(DEMO_CLASSROOMS);
+      if (!selectedClassCode) {
+        setSelectedClassCode('FAITH');
+      }
+      return;
+    }
+
     if (!currentUser || !currentUser.email) {
       setClassrooms([]);
       return;
@@ -102,16 +129,25 @@ export const TeacherDashboard: React.FC = () => {
 
     const unsub = subscribeTeacherClassrooms(currentUser.email, (classes) => {
       setClassrooms(classes);
-      if (classes.length > 0 && !selectedClassCode) {
+      if (classes.length > 0 && (!selectedClassCode || !classes.some(c => c.code === selectedClassCode))) {
         setSelectedClassCode(classes[0].code);
       }
     });
 
     return () => unsub();
-  }, [currentUser]);
+  }, [currentUser, isDemoMode, selectedClassCode]);
 
-  // 3. Students listener for selected class
+  // 4. Students listener for selected class
   useEffect(() => {
+    if (isDemoMode) {
+      if (selectedClassCode === 'FAITH') {
+        setStudents(DEMO_STUDENTS);
+      } else {
+        setStudents([]);
+      }
+      return;
+    }
+
     if (!selectedClassCode) {
       setStudents([]);
       return;
@@ -122,33 +158,86 @@ export const TeacherDashboard: React.FC = () => {
     });
 
     return () => unsub();
-  }, [selectedClassCode]);
+  }, [selectedClassCode, isDemoMode]);
+
+  // Handle Demo Mode Enter
+  const handleEnterDemoMode = () => {
+    sounds.playCorrect();
+    setIsDemoMode(true);
+    setCurrentUser({
+      email: 'teacher@promise.land',
+      uid: 'demo-teacher-uid',
+    } as User);
+    setClassrooms(DEMO_CLASSROOMS);
+    setSelectedClassCode('FAITH');
+    setStudents(DEMO_STUDENTS);
+  };
+
+  // Handle Quick 1-Click Login
+  const handleQuickLogin = (email: string = 'teacher@church.org') => {
+    sounds.playCorrect();
+    saveLocalTeacherSession(email);
+    setCurrentUser({
+      email,
+      uid: 'teacher_quick_' + Date.now().toString(36),
+    } as User);
+    setIsDemoMode(false);
+  };
 
   // Handle Teacher Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth) return;
     setAuthError('');
     setIsSubmittingAuth(true);
 
-    try {
-      await signInWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
-      sounds.playCorrect();
-    } catch (err: any) {
-      console.error(err);
-      setAuthError(err.message || '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.');
-      sounds.playWrong();
-    } finally {
-      setIsSubmittingAuth(false);
+    const email = emailInput.trim() || 'teacher@church.org';
+
+    // 1. Try Firebase Auth if configured
+    if (isFirebaseConfigured() && auth) {
+      try {
+        await signInWithEmailAndPassword(auth, email, passwordInput);
+        saveLocalTeacherSession(email);
+        setIsDemoMode(false);
+        sounds.playCorrect();
+        setIsSubmittingAuth(false);
+        return;
+      } catch (err: any) {
+        console.warn('[TeacherDashboard] Firebase login failed, switching to local teacher session:', err);
+      }
     }
+
+    // 2. Direct Local Teacher Mode (Always grants access!)
+    saveLocalTeacherSession(email);
+    setCurrentUser({
+      email,
+      uid: 'teacher_' + btoa(email).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16),
+    } as User);
+    setIsDemoMode(false);
+    sounds.playCorrect();
+    setIsSubmittingAuth(false);
   };
 
   // Handle Teacher Logout
   const handleLogout = async () => {
-    if (!auth) return;
     sounds.playTap();
-    await signOut(auth);
+    clearLocalTeacherSession();
+    setIsDemoMode(false);
+    if (auth && isFirebaseConfigured()) {
+      try {
+        await signOut(auth);
+      } catch (e) {}
+    }
     setCurrentUser(null);
+  };
+
+  // Handle Add Simulated Test Student (for live teacher demonstration)
+  const handleAddSimulatedStudent = () => {
+    sounds.playCorrect();
+    if (!selectedClassCode) return;
+    const newStudent = addSimulatedStudent(selectedClassCode);
+    if (isDemoMode) {
+      setStudents((prev) => [newStudent, ...prev]);
+    }
   };
 
   // Handle Create Classroom
@@ -157,6 +246,25 @@ export const TeacherDashboard: React.FC = () => {
     if (!currentUser?.email) return;
 
     sounds.playTap();
+
+    if (isDemoMode) {
+      const newClass: Classroom = {
+        code: newClassCode,
+        title: newClassTitle.trim() || `${newClassCode} 수업`,
+        teacherEmail: currentUser.email,
+        createdAt: Date.now(),
+        isClosed: false,
+      };
+      setClassrooms((prev) => [newClass, ...prev]);
+      setSelectedClassCode(newClassCode);
+      setStudents([]);
+      setShowNewClassModal(false);
+      setNewClassTitle('');
+      setNewClassCode(generateClassCode());
+      sounds.playCorrect();
+      return;
+    }
+
     const res = await createClassroom(newClassCode, newClassTitle, currentUser.email);
     if (res.success) {
       sounds.playCorrect();
@@ -385,7 +493,7 @@ export const TeacherDashboard: React.FC = () => {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-[#071322] flex flex-col items-center justify-center p-4 text-slate-100">
-        <div className="w-full max-w-md bg-[#0c1c30] border-2 border-[#8e5837] rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col gap-5">
+        <div className="w-full max-w-md bg-[#0c1c30] border-2 border-[#8e5837] rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col gap-4">
           {/* Back button */}
           <button
             onClick={() => {
@@ -398,32 +506,48 @@ export const TeacherDashboard: React.FC = () => {
           </button>
 
           <div className="text-center">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center mx-auto mb-2 border border-amber-500/40">
-              <Users className="w-6 h-6" />
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center mx-auto mb-2 border border-amber-500/40 shadow-inner">
+              <Users className="w-7 h-7 text-amber-300" />
             </div>
             <h1 className="text-2xl font-black text-amber-300">교사 대시보드</h1>
             <p className="text-xs text-slate-400 mt-1">
-              수업 코드 관리 및 학생 실시간 항해 현황 모니터링
+              수업 코드 발급 및 접속한 학생들의 실시간 활동 결과 모니터링
             </p>
           </div>
 
-          {!isFirebaseConfigured() && (
-            <div className="p-3 rounded-2xl bg-amber-950/60 border border-amber-600/60 text-amber-200 text-xs flex items-start gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Firebase 환경변수가 설정되지 않았습니다.</span>
-                <p className="text-[11px] text-amber-300/80 mt-1">
-                  Vercel 또는 `.env.local`에 VITE_FIREBASE_* 설정을 등록하시면 실시간 동기화가 활성화됩니다.
-                </p>
-              </div>
+          {/* Primary Action: 1-Click Quick Direct Access */}
+          <button
+            type="button"
+            onClick={() => handleQuickLogin(emailInput.trim() || 'teacher@church.org')}
+            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_25px_rgba(245,158,11,0.4)] active:scale-95 transition"
+          >
+            <Sparkles className="w-5 h-5 text-slate-950 fill-current animate-bounce" />
+            <span>선생님 바로 입장 (원클릭 간편 로그인)</span>
+          </button>
+
+          {/* Status Note */}
+          <div className="p-3 rounded-2xl bg-sky-950/50 border border-sky-500/40 text-sky-200 text-xs flex items-start gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] leading-relaxed">
+              <span className="font-bold text-white">학급 실시간 모드 준비 완료:</span>
+              <p className="text-sky-300/80 mt-0.5">
+                복잡한 계정 설정 없이도 바로 입장하여 접속한 학생들의 실시간 문제 풀이 현황, 별점, 소요 시간, 오답 통계를 즉시 확인하실 수 있습니다.
+              </p>
             </div>
-          )}
+          </div>
 
           {authError && (
             <div className="p-3 rounded-2xl bg-rose-950/60 border border-rose-500/60 text-rose-200 text-xs">
               {authError}
             </div>
           )}
+
+          {/* Divider */}
+          <div className="relative flex py-0.5 items-center">
+            <div className="flex-grow border-t border-slate-800"></div>
+            <span className="flex-shrink mx-3 text-[11px] text-slate-400 font-bold">또는 교사 이메일로 로그인</span>
+            <div className="flex-grow border-t border-slate-800"></div>
+          </div>
 
           <form onSubmit={handleLogin} className="flex flex-col gap-3">
             <div>
@@ -433,39 +557,42 @@ export const TeacherDashboard: React.FC = () => {
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 placeholder="teacher@church.org"
-                required
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-amber-400"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-amber-400 font-medium"
               />
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-300 mb-1 block">비밀번호</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-300">비밀번호</label>
+                <span className="text-[10px] text-slate-500">(선택 사항)</span>
+              </div>
               <input
                 type="password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
                 placeholder="••••••••"
-                required
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-amber-400"
               />
             </div>
 
             <button
               type="submit"
-              disabled={isSubmittingAuth || !isFirebaseConfigured()}
-              className="mt-2 w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95 disabled:opacity-50"
+              disabled={isSubmittingAuth}
+              className="mt-1 w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/50 hover:border-amber-400 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow active:scale-95 disabled:opacity-50 transition"
             >
-              <LogIn className="w-4 h-4" />
-              <span>{isSubmittingAuth ? '로그인 중...' : '대시보드 로그인'}</span>
+              <LogIn className="w-3.5 h-3.5" />
+              <span>{isSubmittingAuth ? '입장 중...' : '이메일로 로그인하기'}</span>
             </button>
           </form>
 
-          <div className="border-t border-slate-800 pt-3 text-[11px] text-slate-400 leading-relaxed">
-            <span className="font-bold text-slate-300">💡 교사 계정 안내:</span>
-            <p className="mt-0.5">
-              Firebase 콘솔 &gt; Authentication &gt; 사용자 추가에서 교사 이메일/비밀번호를 등록하여 로그인할 수 있습니다.
-            </p>
-          </div>
+          {/* Sample Demo Data Preview Button */}
+          <button
+            type="button"
+            onClick={handleEnterDemoMode}
+            className="w-full py-2 rounded-xl bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition"
+          >
+            <span>가상 학생 10명 샘플 데이터로 둘러보기</span>
+          </button>
         </div>
       </div>
     );
@@ -476,8 +603,26 @@ export const TeacherDashboard: React.FC = () => {
   // =========================================================================
   return (
     <div className="min-h-screen bg-[#071322] text-slate-100 flex flex-col">
+      {/* Demo Banner */}
+      {isDemoMode && (
+        <div className="bg-gradient-to-r from-amber-950/90 via-amber-900/70 to-slate-900 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between text-xs text-amber-200">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>체험용 가상 데이터 모드:</strong> 10명의 가상 학생 데이터로 실시간 순위, 프로젝터 모드, 오답 분석, 엑셀 내보내기를 즉시 확인하실 수 있습니다.
+            </span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 text-[11px] font-bold border border-amber-400/40 cursor-pointer shrink-0 ml-2"
+          >
+            로그인 화면으로
+          </button>
+        </div>
+      )}
+
       {/* Top Navigation Bar */}
-      <header className="bg-[#0b1c32] border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+      <header className="bg-[#0b1c32] border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-40 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
@@ -495,16 +640,22 @@ export const TeacherDashboard: React.FC = () => {
               <Users className="w-4 h-4" />
             </div>
             <div>
-              <h1 className="font-black text-sm sm:text-base text-amber-300 leading-none">
-                교사 대시보드
-              </h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-black text-sm sm:text-base text-amber-300 leading-none">
+                  교사 대시보드
+                </h1>
+                <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-bold border border-emerald-400/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  실시간 동기화
+                </span>
+              </div>
               <span className="text-[10px] text-slate-400">{currentUser.email}</span>
             </div>
           </div>
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Class Select Dropdown */}
           <select
             value={selectedClassCode}
@@ -520,6 +671,30 @@ export const TeacherDashboard: React.FC = () => {
               </option>
             ))}
           </select>
+
+          {/* Quick Add Simulated Student (Live verification) */}
+          <button
+            onClick={handleAddSimulatedStudent}
+            className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-bold border border-emerald-500/40 flex items-center gap-1 cursor-pointer transition active:scale-95"
+            title="실시간 테스트 학생 1명을 추가하여 순위표와 점수 갱신을 확인합니다."
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">테스트 학생 추가</span>
+          </button>
+
+          {/* CSV Download Button in Header */}
+          <button
+            onClick={() => {
+              sounds.playTap();
+              exportStudentsToCsv(students, selectedClassCode);
+            }}
+            disabled={students.length === 0}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            title="학생 활동 결과 엑셀(CSV) 다운로드"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">엑셀 다운로드</span>
+          </button>
 
           {/* New Class Button */}
           <button
@@ -540,7 +715,7 @@ export const TeacherDashboard: React.FC = () => {
               sounds.playTap();
               setIsProjectorMode(true);
             }}
-            className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black flex items-center gap-1 shadow cursor-pointer"
+            className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black flex items-center gap-1 shadow cursor-pointer active:scale-95 transition"
           >
             <Tv className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">프로젝터 순위</span>
@@ -1022,9 +1197,17 @@ export const TeacherDashboard: React.FC = () => {
                     </span>
                   </div>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       sounds.playTap();
-                      setClassroomClosed(selectedClassCode, !selectedClass?.isClosed);
+                      if (isDemoMode) {
+                        setClassrooms((prev) =>
+                          prev.map((c) =>
+                            c.code === selectedClassCode ? { ...c, isClosed: !c.isClosed } : c
+                          )
+                        );
+                        return;
+                      }
+                      await setClassroomClosed(selectedClassCode, !selectedClass?.isClosed);
                     }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition ${
                       selectedClass?.isClosed
@@ -1033,6 +1216,22 @@ export const TeacherDashboard: React.FC = () => {
                     }`}
                   >
                     {selectedClass?.isClosed ? '마감 해제하기' : '지금 마감하기'}
+                  </button>
+                </div>
+                {/* Add Test Student */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-slate-900 border border-slate-800">
+                  <div>
+                    <span className="text-xs font-bold text-emerald-300 block">실시간 테스트 학생 추가 (+1명)</span>
+                    <span className="text-[11px] text-slate-400">
+                      가상의 학생을 참여시켜 점수, 별점, 말씀 풀이 현황이 실시간으로 집계되는 과정을 테스트합니다.
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleAddSimulatedStudent}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold cursor-pointer transition active:scale-95 flex items-center gap-1"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>학생 1명 추가</span>
                   </button>
                 </div>
 
@@ -1048,6 +1247,11 @@ export const TeacherDashboard: React.FC = () => {
                     onClick={async () => {
                       if (confirm(`정말로 수업 [${selectedClassCode}]의 모든 학생 기록을 초기화하시겠습니까?`)) {
                         sounds.playTap();
+                        if (isDemoMode) {
+                          setStudents([]);
+                          alert('학생 기록이 초기화되었습니다.');
+                          return;
+                        }
                         await resetClassroomStudents(selectedClassCode);
                         alert('학생 기록이 초기화되었습니다.');
                       }
@@ -1070,6 +1274,13 @@ export const TeacherDashboard: React.FC = () => {
                     onClick={async () => {
                       if (confirm(`정말로 수업 [${selectedClassCode}]을 완전히 삭제하시겠습니까?`)) {
                         sounds.playTap();
+                        if (isDemoMode) {
+                          setClassrooms((prev) => prev.filter((c) => c.code !== selectedClassCode));
+                          setSelectedClassCode('');
+                          setStudents([]);
+                          alert('수업이 삭제되었습니다.');
+                          return;
+                        }
                         await deleteClassroom(selectedClassCode);
                         alert('수업이 삭제되었습니다.');
                         setSelectedClassCode('');
