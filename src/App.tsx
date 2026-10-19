@@ -36,8 +36,8 @@ import {
   saveSavedProgress, 
   clearSavedProgress 
 } from './utils/storage';
-import { AnimatePresence } from 'motion/react';
-import { Trophy, Star, ShieldCheck } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Trophy, Star, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 const STORAGE_KEY_LEADERBOARD = 'VOYAGE_OF_FAITH_LEADERBOARD_V1';
 
@@ -59,13 +59,31 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // Extract initial class code from URL if present (?code=FAITH or ?class=FAITH or #code=FAITH)
+  const initialClassCode = useMemo(() => {
+    try {
+      if (typeof window === 'undefined') return '';
+      const searchParams = new URLSearchParams(window.location.search);
+      const paramCode = searchParams.get('code') || searchParams.get('class');
+      if (paramCode) return paramCode.trim().toUpperCase().slice(0, 5);
+
+      const hash = window.location.hash;
+      const match = hash.match(/[?&#]code=([a-zA-Z0-9]+)/i) || hash.match(/[?&#]class=([a-zA-Z0-9]+)/i);
+      if (match && match[1]) {
+        return match[1].trim().toUpperCase().slice(0, 5);
+      }
+    } catch (e) {}
+    return '';
+  }, []);
+
   const [gameState, setGameState] = useState<'start' | 'playing' | 'completed'>('start');
   const [language, setLanguage] = useState<Language>('ko');
-  const [playerProfile, setPlayerProfile] = useState<PlayerProfile>({
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile>(() => ({
     name: '다윗',
     fam: 'agape',
     language: 'ko',
-  });
+    classCode: initialClassCode || undefined,
+  }));
 
   // Dynamic Randomized Quests State (Shuffled on every new game/session)
   const [quests, setQuests] = useState<VerseQuest[]>(() => getRandomizedQuests());
@@ -94,6 +112,16 @@ export default function App() {
   const [showAdminLogin, setShowAdminLogin] = useState<boolean>(false);
   const [isAdminMode, setIsAdminMode] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isClassConnected, setIsClassConnected] = useState<boolean>(false);
+  const [classroomToast, setClassroomToast] = useState<{ code: string; name: string } | null>(null);
+
+  // Auto-dismiss classroom toast after 5s
+  useEffect(() => {
+    if (classroomToast) {
+      const timer = window.setTimeout(() => setClassroomToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [classroomToast]);
 
   // Time Attack Timer (ms)
   const [elapsedTimeMs, setElapsedTimeMs] = useState<number>(0);
@@ -287,21 +315,29 @@ export default function App() {
     setActiveModalQuestId(null);
     setGameState('playing');
 
-    // If student entered a classCode, register into classroom
+    // If student entered a classCode, register into classroom immediately
     if (profile.classCode) {
       try {
         const res = await joinClassroom(profile.classCode, profile, 0);
-        if (!res.success && res.error) {
+        if (res.success) {
+          setIsClassConnected(true);
+          setClassroomToast({
+            code: profile.classCode,
+            name: profile.name,
+          });
+        } else if (res.error) {
           console.warn('[Classroom Join Note]', res.error);
         }
       } catch (err) {
         console.warn('[Classroom Join Error]', err);
       }
+    } else {
+      setIsClassConnected(false);
     }
   };
 
   // Resume Saved Game Handler
-  const handleResumeGame = () => {
+  const handleResumeGame = async () => {
     if (!savedProgress) return;
     setPlayerProfile(savedProgress.playerProfile);
     setLanguage(savedProgress.playerProfile.language || 'ko');
@@ -317,6 +353,26 @@ export default function App() {
     setVerseReviewHistory(savedProgress.verseReviewHistory || {});
     setActiveModalQuestId(null);
     setGameState('playing');
+
+    // Re-verify classroom presence on resume
+    if (savedProgress.playerProfile.classCode) {
+      try {
+        const res = await joinClassroom(
+          savedProgress.playerProfile.classCode,
+          savedProgress.playerProfile,
+          currentScore
+        );
+        if (res.success) {
+          setIsClassConnected(true);
+          setClassroomToast({
+            code: savedProgress.playerProfile.classCode,
+            name: savedProgress.playerProfile.name,
+          });
+        }
+      } catch (err) {}
+    } else {
+      setIsClassConnected(false);
+    }
   };
 
   // Switch Mascot Handler
@@ -466,6 +522,50 @@ export default function App() {
         />
       </div>
 
+      {/* Realtime Classroom Connection Alert Toast */}
+      <AnimatePresence>
+        {classroomToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -30, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -30, scale: 0.9 }}
+            className="fixed top-4 z-50 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-900/95 via-slate-900/95 to-teal-900/95 border-2 border-emerald-400 text-white shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-md flex items-center gap-3 max-w-md pointer-events-auto select-none"
+          >
+            <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center shrink-0">
+              <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+            </div>
+            <div className="text-left text-xs">
+              <div className="font-black text-emerald-300 flex items-center gap-1.5">
+                <span>🏫 [{classroomToast.code}] 수업 실시간 접속 완료!</span>
+              </div>
+              <div className="text-[11px] text-slate-200 mt-0.5 leading-snug">
+                <strong>{classroomToast.name}</strong> 학생의 풀이 활동과 점수가 선생님 대시보드에 실시간으로 기록됩니다.
+              </div>
+            </div>
+            <button
+              onClick={() => setClassroomToast(null)}
+              className="ml-auto p-1 text-slate-400 hover:text-white cursor-pointer"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Realtime Classroom Live Status Pill (Fixed Top Left during Play) */}
+      {gameState === 'playing' && playerProfile.classCode && (
+        <div className="fixed top-3 left-3 z-30 pointer-events-auto">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/85 border border-emerald-400/70 backdrop-blur-md shadow-lg text-[11px] text-slate-200">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-slate-300 font-medium">수업:</span>
+            <span className="font-mono font-black text-amber-300">[{playerProfile.classCode}]</span>
+            <span className="text-[10px] text-emerald-300 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/40">
+              실시간 기록 중
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Realtime Score HUD Badge (Fixed Left Bottom during Play) */}
       {gameState === 'playing' && (
         <div className="fixed bottom-3 left-3 z-30 pointer-events-none sm:pointer-events-auto transition-transform hover:scale-105">
@@ -518,6 +618,7 @@ export default function App() {
                   : undefined
               }
               onResumeGame={handleResumeGame}
+              initialClassCode={initialClassCode}
             />
           </div>
         )}

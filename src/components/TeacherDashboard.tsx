@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   signInWithEmailAndPassword,
   signOut,
@@ -26,6 +26,7 @@ import { Classroom, StudentSession } from '../types';
 import { VERSE_QUESTS, FAM_LIST } from '../data/verses';
 import { HERO_CHARACTERS } from '../data/characters';
 import { getRankTier } from '../utils/score';
+import { StudentDetailModal } from './StudentDetailModal';
 import {
   Users,
   Trophy,
@@ -51,6 +52,11 @@ import {
   RefreshCw,
   Search,
   UserPlus,
+  Share2,
+  Copy,
+  Check,
+  ExternalLink,
+  BookOpen,
 } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
@@ -73,6 +79,14 @@ export const TeacherDashboard: React.FC = () => {
   const [students, setStudents] = useState<StudentSession[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard' | 'verses' | 'settings'>('overview');
 
+  // Student Detail Modal
+  const [selectedStudentForDetail, setSelectedStudentForDetail] = useState<StudentSession | null>(null);
+
+  // Invite Modal
+  const [showInviteModal, setShowInviteModal] = useState<boolean>(false);
+  const [copiedInviteLink, setCopiedInviteLink] = useState<boolean>(false);
+  const [copiedCodeOnly, setCopiedCodeOnly] = useState<boolean>(false);
+
   // New Class Modal
   const [showNewClassModal, setShowNewClassModal] = useState<boolean>(false);
   const [newClassTitle, setNewClassTitle] = useState<string>('');
@@ -83,6 +97,17 @@ export const TeacherDashboard: React.FC = () => {
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Real-time student join alert
+  const [newStudentToast, setNewStudentToast] = useState<{ name: string; time: number } | null>(null);
+  const prevStudentIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (newStudentToast) {
+      const t = window.setTimeout(() => setNewStudentToast(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [newStudentToast]);
 
   // 1. Check existing local teacher session on mount
   useEffect(() => {
@@ -153,7 +178,16 @@ export const TeacherDashboard: React.FC = () => {
       return;
     }
 
+    prevStudentIdsRef.current = new Set();
     const unsub = subscribeClassStudents(selectedClassCode, (stList) => {
+      if (prevStudentIdsRef.current.size > 0 && stList.length > prevStudentIdsRef.current.size) {
+        const newlyJoined = stList.find((s) => !prevStudentIdsRef.current.has(s.id));
+        if (newlyJoined) {
+          sounds.playCorrect();
+          setNewStudentToast({ name: newlyJoined.studentName, time: Date.now() });
+        }
+      }
+      prevStudentIdsRef.current = new Set(stList.map((s) => s.id));
       setStudents(stList);
     });
 
@@ -603,6 +637,25 @@ export const TeacherDashboard: React.FC = () => {
   // =========================================================================
   return (
     <div className="min-h-screen bg-[#071322] text-slate-100 flex flex-col">
+      {/* Real-time Student Arrival Alert Toast */}
+      {newStudentToast && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-900/95 to-slate-900/95 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-md flex items-center gap-3 animate-bounce">
+          <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping shrink-0" />
+          <div className="text-xs">
+            <span className="font-black text-emerald-300">🎉 새 학생 실시간 접속!</span>
+            <p className="text-slate-200 text-[11px]">
+              <strong>{newStudentToast.name}</strong> 학생이 방금 수업에 접속하여 활동이 기록되고 있습니다.
+            </p>
+          </div>
+          <button
+            onClick={() => setNewStudentToast(null)}
+            className="p-1 text-slate-400 hover:text-white cursor-pointer ml-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Demo Banner */}
       {isDemoMode && (
         <div className="bg-gradient-to-r from-amber-950/90 via-amber-900/70 to-slate-900 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between text-xs text-amber-200">
@@ -696,6 +749,19 @@ export const TeacherDashboard: React.FC = () => {
             <span className="hidden md:inline">엑셀 다운로드</span>
           </button>
 
+          {/* Invite / Share Class Button */}
+          <button
+            onClick={() => {
+              sounds.playTap();
+              setShowInviteModal(true);
+            }}
+            className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold border border-amber-500/40 flex items-center gap-1 cursor-pointer transition active:scale-95"
+            title="학생 초대 코드 및 참여 링크 복사/안내"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">학생 초대</span>
+          </button>
+
           {/* New Class Button */}
           <button
             onClick={() => {
@@ -703,7 +769,7 @@ export const TeacherDashboard: React.FC = () => {
               setNewClassCode(generateClassCode());
               setShowNewClassModal(true);
             }}
-            className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold border border-amber-500/40 flex items-center gap-1 cursor-pointer"
+            className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 flex items-center gap-1 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">수업 추가</span>
@@ -843,6 +909,44 @@ export const TeacherDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Live Activity Ticker Banner */}
+            <div className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#0c1e36] via-[#102747] to-[#0c1e36] border border-sky-500/30 flex items-center justify-between gap-3 text-xs shadow-md">
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                </span>
+                <span className="font-black text-sky-300 flex items-center gap-1">
+                  <span>⚡ 실시간 활동 현황</span>
+                </span>
+              </div>
+              <div className="flex-1 text-slate-300 text-[11px] truncate flex items-center gap-2">
+                {stats.completedCount > 0 ? (
+                  <span className="text-emerald-300 font-bold">
+                    🏆 {stats.completedCount}명 완주 달성!
+                  </span>
+                ) : (
+                  <span className="text-sky-200">
+                    ⚓ {stats.onlineCount}명 실시간 항해 중
+                  </span>
+                )}
+                <span className="text-slate-600">•</span>
+                <span className="text-amber-200/90 truncate">
+                  {students.slice(0, 4).map((st) => `${st.studentName}(${st.solvedCount}/36)`).join(' • ')}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  sounds.playTap();
+                  setShowInviteModal(true);
+                }}
+                className="text-[11px] text-amber-300 hover:text-amber-200 font-bold shrink-0 flex items-center gap-1 underline cursor-pointer"
+              >
+                <span>초대 코드 [{selectedClassCode}]</span>
+                <Share2 className="w-3 h-3" />
+              </button>
+            </div>
+
             {/* Help Needed Alert (If any) */}
             {helpNeededStudents.length > 0 && (
               <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -855,19 +959,26 @@ export const TeacherDashboard: React.FC = () => {
                       🚨 도움이 필요한 학생이 {helpNeededStudents.length}명 있습니다!
                     </h3>
                     <p className="text-xs text-rose-300/80">
-                      오답 횟수가 누적되었거나 문제 풀이에 정체를 겪고 있는 학생입니다. 격려와 힌트를 전해주세요.
+                      오답 횟수가 누적되었거나 문제 풀이에 정체를 겪고 있는 학생입니다. 이름을 클릭하면 취약 구절을 확인하고 맞춤 지도를 할 수 있습니다.
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {helpNeededStudents.map((s) => (
-                    <span
+                    <button
                       key={s.id}
-                      className="px-2.5 py-1 rounded-full bg-rose-900/80 border border-rose-500/80 text-xs font-bold text-rose-100 flex items-center gap-1 shadow"
+                      type="button"
+                      onClick={() => {
+                        sounds.playTap();
+                        setSelectedStudentForDetail(s);
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-rose-900/80 hover:bg-rose-800 border border-rose-500/80 text-xs font-bold text-rose-100 flex items-center gap-1 shadow cursor-pointer transition active:scale-95"
+                      title="클릭하여 학생 상세 분석 보기"
                     >
                       <span>{s.studentName}</span>
                       <span className="text-[10px] text-rose-300">(오답 {s.wrongAnswersCount}회)</span>
-                    </span>
+                      <span className="text-[9px] text-amber-300 ml-0.5">🔍</span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -980,7 +1091,11 @@ export const TeacherDashboard: React.FC = () => {
                       return (
                         <div
                           key={s.id}
-                          className={`p-3.5 rounded-2xl border flex flex-col justify-between transition ${
+                          onClick={() => {
+                            sounds.playTap();
+                            setSelectedStudentForDetail(s);
+                          }}
+                          className={`p-3.5 rounded-2xl border flex flex-col justify-between transition cursor-pointer hover:border-amber-400 hover:shadow-xl hover:scale-[1.01] ${
                             isNeedsHelp
                               ? 'bg-rose-950/20 border-rose-500/60 shadow'
                               : 'bg-[#0c1e36] border-slate-800'
@@ -1045,6 +1160,12 @@ export const TeacherDashboard: React.FC = () => {
                               오답 {s.wrongAnswersCount}회
                             </span>
                           </div>
+
+                          {/* Quick Inspect Button */}
+                          <div className="mt-2 py-1 px-2 rounded-lg bg-slate-900 hover:bg-amber-950/60 border border-slate-800 hover:border-amber-500/50 flex items-center justify-center gap-1 text-[10px] text-amber-300 font-bold transition">
+                            <span>활동 상세 보고서 보기</span>
+                            <span className="text-amber-400">→</span>
+                          </div>
                         </div>
                       );
                     })}
@@ -1073,7 +1194,14 @@ export const TeacherDashboard: React.FC = () => {
                     {students.map((s, idx) => {
                       const tier = getRankTier(s.score, s.solvedCount);
                       return (
-                        <tr key={s.id} className="hover:bg-slate-800/40 transition">
+                        <tr
+                          key={s.id}
+                          onClick={() => {
+                            sounds.playTap();
+                            setSelectedStudentForDetail(s);
+                          }}
+                          className="hover:bg-slate-800/80 transition cursor-pointer group"
+                        >
                           <td className="py-3 px-4">
                             <span
                               className={`w-6 h-6 rounded-lg flex items-center justify-center font-black text-xs ${
@@ -1091,8 +1219,9 @@ export const TeacherDashboard: React.FC = () => {
                           </td>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-white text-sm">{s.studentName}</span>
+                              <span className="font-bold text-white text-sm group-hover:text-amber-300 transition">{s.studentName}</span>
                               <span className="text-[10px] text-slate-400">({tier.badge} {tier.tier.split(' ')[0]})</span>
+                              <span className="text-[10px] text-amber-300 opacity-0 group-hover:opacity-100 transition">🔍 상세</span>
                             </div>
                           </td>
                           <td className="py-3 px-4 font-mono font-bold text-amber-300 text-sm">
@@ -1162,6 +1291,36 @@ export const TeacherDashboard: React.FC = () => {
                         <p className="text-xs text-slate-200 font-medium mt-1.5 line-clamp-2 leading-relaxed">
                           {item.quest.text.ko}
                         </p>
+
+                        {/* Students who made errors on this verse */}
+                        {(() => {
+                          const wrongStudents = students.filter(
+                            (s) => s.wrongQuestCounts && (s.wrongQuestCounts[String(item.quest.id)] || 0) > 0
+                          );
+                          if (wrongStudents.length === 0) return null;
+                          return (
+                            <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] text-slate-400 font-bold">오답 학생:</span>
+                              {wrongStudents.map((st) => (
+                                <button
+                                  key={st.id}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    sounds.playTap();
+                                    setSelectedStudentForDetail(st);
+                                  }}
+                                  className="px-2 py-0.5 rounded-md bg-rose-950/80 hover:bg-rose-900 border border-rose-500/50 text-[10px] text-rose-200 cursor-pointer flex items-center gap-1 transition active:scale-95"
+                                  title="클릭하여 학생 상세 분석 보기"
+                                >
+                                  <span>{st.studentName}</span>
+                                  <span className="text-rose-400 font-bold">({st.wrongQuestCounts?.[String(item.quest.id)]}회)</span>
+                                  <span className="text-[9px] text-amber-300">🔍</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div className="text-right shrink-0">
@@ -1361,6 +1520,136 @@ export const TeacherDashboard: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Student Activity Detail Modal */}
+      {selectedStudentForDetail && (
+        <StudentDetailModal
+          student={selectedStudentForDetail}
+          rank={
+            students.findIndex((s) => s.id === selectedStudentForDetail.id) + 1 || 1
+          }
+          totalStudents={students.length}
+          onClose={() => setSelectedStudentForDetail(null)}
+        />
+      )}
+
+      {/* Classroom Invite & Share Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm select-none">
+          <div className="relative w-full max-w-lg bg-[#0c1c32] border-2 sm:border-4 border-[#8e5837] rounded-3xl p-5 sm:p-6 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col gap-4 text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/40">
+                  <Share2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-amber-300">
+                    학생 초대 & 접속 안내
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    수업: {selectedClass?.title || selectedClassCode}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Giant Code Box */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-[#081729] to-[#050e1a] border-2 border-amber-500/50 text-center flex flex-col items-center gap-2 shadow-inner">
+              <span className="text-xs font-bold text-amber-200/80 uppercase tracking-widest">
+                수업 입장 코드 (5자리)
+              </span>
+              <div className="text-4xl sm:text-5xl font-black text-amber-300 font-mono tracking-widest select-all my-1">
+                {selectedClassCode}
+              </div>
+              <button
+                onClick={() => {
+                  sounds.playTap();
+                  navigator.clipboard.writeText(selectedClassCode).then(() => {
+                    setCopiedCodeOnly(true);
+                    setTimeout(() => setCopiedCodeOnly(false), 2000);
+                  });
+                }}
+                className="px-4 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition active:scale-95"
+              >
+                {copiedCodeOnly ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedCodeOnly ? '코드 복사 완료!' : '코드만 복사하기'}</span>
+              </button>
+            </div>
+
+            {/* Direct Participation Link */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>원클릭 자동 접속 링크</span>
+                <span className="text-[10px] text-sky-300 font-normal">코드가 자동 입력됩니다</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={
+                    typeof window !== 'undefined'
+                      ? `${window.location.origin}${window.location.pathname}?code=${selectedClassCode}`
+                      : `?code=${selectedClassCode}`
+                  }
+                  className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 select-all"
+                />
+                <button
+                  onClick={() => {
+                    sounds.playTap();
+                    const link = `${window.location.origin}${window.location.pathname}?code=${selectedClassCode}`;
+                    navigator.clipboard.writeText(link).then(() => {
+                      setCopiedInviteLink(true);
+                      setTimeout(() => setCopiedInviteLink(false), 2000);
+                    });
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer transition active:scale-95 shadow"
+                >
+                  {copiedInviteLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedInviteLink ? '복사됨!' : '링크 복사'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Step-by-Step Instructions for Teachers */}
+            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs space-y-2">
+              <span className="font-bold text-amber-300 block">💡 학생 참여 진행 가이드:</span>
+              <ol className="list-decimal list-inside space-y-1 text-slate-300 text-[11px] leading-relaxed">
+                <li>학생들에게 위의 링크를 카카오톡 또는 문자로 보내거나, 5자리 코드를 화면에 띄워주세요.</li>
+                <li>학생이 시작 화면에서 수업 코드를 입력하고 출발하면 자동으로 연결됩니다.</li>
+                <li>학생의 점수, 별점, 퀴즈 정답/오답이 이 대시보드에 실시간으로 집계됩니다!</li>
+              </ol>
+            </div>
+
+            {/* Test Simulation Button */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  handleAddSimulatedStudent();
+                  setShowInviteModal(false);
+                }}
+                className="text-emerald-400 hover:text-emerald-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>테스트용 학생 1명 즉시 참여시키기</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInviteModal(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                닫기
+              </button>
+            </div>
           </div>
         </div>
       )}

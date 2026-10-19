@@ -1,0 +1,16 @@
+[
+  {
+    "code": "FAITH",
+    "title": "2026 초등부 성경탐험대",
+    "teacherEmail": "teacher@promise.land",
+    "createdAt": 1792408363213,
+    "isClosed": false
+  },
+  {
+    "code": "GRACE",
+    "title": "중고등부 믿음의 항해",
+    "teacherEmail": "teacher@promise.land",
+    "createdAt": 1792329163213,
+    "isClosed": false
+  }
+]

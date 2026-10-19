@@ -92,6 +92,7 @@ export interface StudentSession {
   wrongQuestCounts?: { [questId: string]: number }; // questId -> wrong attempt count
   currentQuestId: number | null;
   elapsedTimeMs: number;
+  joinedAt?: number;
   lastActiveAt: number; // Unix timestamp ms
   isOnline: boolean;
   isCompleted: boolean;

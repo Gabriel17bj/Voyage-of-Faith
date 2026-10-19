@@ -379,7 +379,7 @@ export async function ensureStudentAuth(): Promise<User | null> {
 }
 
 /**
- * 학생이 수업 코드로 반에 입장
+ * 학생이 수업 코드로 반에 입장 (서버 실시간 API + Firebase + Local Tri-Engine)
  */
 export async function joinClassroom(
   rawClassCode: string,
@@ -391,7 +391,38 @@ export async function joinClassroom(
     return { success: false, error: '수업 코드를 입력해주세요.' };
   }
 
-  // 1. Firebase Cloud Mode
+  const studentId = auth?.currentUser?.uid || getOrCreateLocalStudentId();
+  let serverSession: StudentSession | null = null;
+
+  // 1. First: Try Backend Server API (Works across all devices/networks via SSE)
+  try {
+    const res = await fetch(`/api/classrooms/${classCode}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId,
+        studentName: profile.name,
+        famId: profile.fam,
+        characterId: profile.characterId || 'sailor_boy',
+        initialScore,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.session) {
+        serverSession = data.session;
+        mirrorLocalStudent(classCode, data.session);
+        notifySyncEvent('STUDENT_JOIN', { classCode, student: data.session });
+      } else if (data.error) {
+        return { success: false, error: data.error };
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Cloud] Backend API joinClassroom skipped/fallback:', apiErr);
+  }
+
+  // 2. Firebase Cloud Mode (if configured)
   if (isFirebaseConfigured() && db && auth) {
     try {
       const user = await ensureStudentAuth();
@@ -399,9 +430,7 @@ export async function joinClassroom(
         const classRef = doc(db, 'classrooms', classCode);
         const classSnap = await getDoc(classRef);
 
-        if (!classSnap.exists()) {
-          // If not in Firebase yet, let's also check local store fallback
-        } else {
+        if (classSnap.exists()) {
           const classData = classSnap.data() as Classroom;
           if (classData.isClosed) {
             return { success: false, error: '해당 수업은 입장이 마감되었습니다.' };
@@ -445,6 +474,7 @@ export async function joinClassroom(
               wrongQuestCounts: {},
               currentQuestId: null,
               elapsedTimeMs: 0,
+              joinedAt: now,
               lastActiveAt: now,
               isOnline: true,
               isCompleted: false,
@@ -452,7 +482,6 @@ export async function joinClassroom(
             await setDoc(studentRef, sessionData);
           }
 
-          // Also mirror to local store for instant cross-tab sync
           mirrorLocalStudent(classCode, sessionData);
           return { success: true, session: sessionData };
         }
@@ -462,11 +491,14 @@ export async function joinClassroom(
     }
   }
 
-  // 2. Local Classroom Mode (Cross-Tab / Browser Synced)
+  if (serverSession) {
+    return { success: true, session: serverSession };
+  }
+
+  // 3. Local Classroom Mode (Cross-Tab / Browser Synced)
   const classrooms = getLocalClassrooms();
   let targetClass = classrooms.find((c) => c.code === classCode);
 
-  // If classroom doesn't exist yet, auto-create it so students aren't blocked!
   if (!targetClass) {
     targetClass = {
       code: classCode,
@@ -482,7 +514,6 @@ export async function joinClassroom(
     return { success: false, error: '해당 수업은 현재 입장이 마감되었습니다.' };
   }
 
-  const studentId = getOrCreateLocalStudentId();
   const students = getLocalStudents(classCode);
   const existingIdx = students.findIndex((s) => s.id === studentId || s.studentName === profile.name);
 
@@ -515,6 +546,7 @@ export async function joinClassroom(
       wrongQuestCounts: {},
       currentQuestId: null,
       elapsedTimeMs: 0,
+      joinedAt: now,
       lastActiveAt: now,
       isOnline: true,
       isCompleted: false,
@@ -552,8 +584,21 @@ export async function updateStudentProgress(
   if (!cleanCode) return;
 
   const now = Date.now();
+  const studentId = auth?.currentUser?.uid || getOrCreateLocalStudentId();
 
-  // 1. Firebase Sync if available
+  // 1. Backend Server API Sync
+  try {
+    fetch(`/api/classrooms/${cleanCode}/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId,
+        updates,
+      }),
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 2. Firebase Sync if available
   if (isFirebaseConfigured() && db && auth && auth.currentUser) {
     try {
       const studentRef = doc(db, 'classrooms', cleanCode, 'students', auth.currentUser.uid);
@@ -571,8 +616,7 @@ export async function updateStudentProgress(
     }
   }
 
-  // 2. Local Storage Sync (Cross-Tab)
-  const studentId = auth?.currentUser?.uid || getOrCreateLocalStudentId();
+  // 3. Local Storage Sync (Cross-Tab)
   const students = getLocalStudents(cleanCode);
   const idx = students.findIndex((s) => s.id === studentId);
 
@@ -596,7 +640,18 @@ export async function sendHeartbeat(classCode: string): Promise<void> {
   if (!cleanCode) return;
 
   const now = Date.now();
+  const studentId = auth?.currentUser?.uid || getOrCreateLocalStudentId();
 
+  // Backend Heartbeat
+  try {
+    fetch(`/api/classrooms/${cleanCode}/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId }),
+    }).catch(() => {});
+  } catch (e) {}
+
+  // Firebase Heartbeat
   if (isFirebaseConfigured() && db && auth && auth.currentUser) {
     try {
       const studentRef = doc(db, 'classrooms', cleanCode, 'students', auth.currentUser.uid);
@@ -608,7 +663,6 @@ export async function sendHeartbeat(classCode: string): Promise<void> {
   }
 
   // Local heartbeat
-  const studentId = auth?.currentUser?.uid || getOrCreateLocalStudentId();
   const students = getLocalStudents(cleanCode);
   const idx = students.findIndex((s) => s.id === studentId);
   if (idx >= 0) {
@@ -619,7 +673,7 @@ export async function sendHeartbeat(classCode: string): Promise<void> {
 }
 
 /**
- * 우리 반 학생 실시간 순위 구독 (학생 & 교사용)
+ * 우리 반 학생 실시간 순위 구독 (SSE + REST Polling + Firebase + Local Sync)
  */
 export function subscribeClassStudents(
   classCode: string,
@@ -647,11 +701,49 @@ export function subscribeClassStudents(
       });
   };
 
-  // Immediate initial load from local store
+  // 1. Immediate initial load from local store
   const initialLocal = getLocalStudents(cleanCode);
   onUpdate(sortStudents(initialLocal));
 
-  // Firebase listener
+  // 2. Real-time Server-Sent Events (SSE) Stream
+  let eventSource: EventSource | null = null;
+  try {
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      eventSource = new EventSource(`/api/classrooms/${cleanCode}/stream`);
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && Array.isArray(data.students)) {
+            const sorted = sortStudents(data.students);
+            saveLocalStudents(cleanCode, sorted);
+            onUpdate(sorted);
+          }
+        } catch (e) {}
+      };
+      eventSource.onerror = () => {
+        // SSE reconnects automatically, fallback poll ensures continuity
+      };
+    }
+  } catch (e) {
+    console.warn('[Cloud] SSE not available:', e);
+  }
+
+  // 3. Fallback Periodic Polling (every 2.5s) to guarantee zero desync
+  const pollInterval = window.setInterval(async () => {
+    try {
+      const res = await fetch(`/api/classrooms/${cleanCode}/students`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.students)) {
+          const sorted = sortStudents(data.students);
+          saveLocalStudents(cleanCode, sorted);
+          onUpdate(sorted);
+        }
+      }
+    } catch (e) {}
+  }, 2500);
+
+  // 4. Firebase listener
   let fbUnsubscribe: (() => void) | null = null;
   if (isFirebaseConfigured() && db) {
     try {
@@ -680,8 +772,8 @@ export function subscribeClassStudents(
     }
   }
 
-  // Local Cross-Tab event listeners
-  const handleLocalSync = (e: any) => {
+  // 5. Local Cross-Tab event listeners
+  const handleLocalSync = (_e: any) => {
     const fresh = getLocalStudents(cleanCode);
     onUpdate(sortStudents(fresh));
   };
@@ -702,6 +794,11 @@ export function subscribeClassStudents(
   }
 
   return () => {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    clearInterval(pollInterval);
     if (fbUnsubscribe) fbUnsubscribe();
     if (broadcastChannel) {
       broadcastChannel.removeEventListener('message', handleLocalSync);
@@ -734,7 +831,24 @@ export async function createClassroom(
     isClosed: false,
   };
 
-  // 1. Firebase save
+  // 1. Backend API
+  try {
+    const res = await fetch('/api/classrooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: cleanCode,
+        title: newClass.title,
+        teacherEmail: newClass.teacherEmail,
+      }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      if (errData.error) return { success: false, error: errData.error };
+    }
+  } catch (e) {}
+
+  // 2. Firebase save
   if (isFirebaseConfigured() && db) {
     try {
       const classRef = doc(db, 'classrooms', cleanCode);
@@ -748,7 +862,7 @@ export async function createClassroom(
     }
   }
 
-  // 2. Local save
+  // 3. Local save
   const classrooms = getLocalClassrooms();
   if (classrooms.some((c) => c.code === cleanCode)) {
     return { success: false, error: `이미 존재하는 학급 코드 [${cleanCode}] 입니다.` };
@@ -767,10 +881,7 @@ export function subscribeTeacherClassrooms(
 ): () => void {
   const email = teacherEmail.trim().toLowerCase();
 
-  // Filter local classes
-  const filterAndSort = () => {
-    const all = getLocalClassrooms();
-    // Return all classes or filter by teacher
+  const filterAndSort = (all: Classroom[]) => {
     const matching = all.filter(
       (c) => !c.teacherEmail || c.teacherEmail.toLowerCase() === email || email === 'teacher@promise.land'
     );
@@ -778,7 +889,24 @@ export function subscribeTeacherClassrooms(
     return [...result].sort((a, b) => b.createdAt - a.createdAt);
   };
 
-  onUpdate(filterAndSort());
+  // Initial local
+  onUpdate(filterAndSort(getLocalClassrooms()));
+
+  // Fetch from server
+  const fetchClasses = async () => {
+    try {
+      const res = await fetch('/api/classrooms');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.classrooms)) {
+          saveLocalClassrooms(data.classrooms);
+          onUpdate(filterAndSort(data.classrooms));
+        }
+      }
+    } catch (e) {}
+  };
+  fetchClasses();
+  const pollInterval = window.setInterval(fetchClasses, 5000);
 
   let fbUnsubscribe: (() => void) | null = null;
   if (isFirebaseConfigured() && db) {
@@ -802,12 +930,12 @@ export function subscribeTeacherClassrooms(
   }
 
   const handleSync = () => {
-    onUpdate(filterAndSort());
+    onUpdate(filterAndSort(getLocalClassrooms()));
   };
 
   const handleStorage = (e: StorageEvent) => {
     if (e.key === STORAGE_CLASSROOMS_KEY) {
-      onUpdate(filterAndSort());
+      onUpdate(filterAndSort(getLocalClassrooms()));
     }
   };
 
@@ -820,6 +948,7 @@ export function subscribeTeacherClassrooms(
   }
 
   return () => {
+    clearInterval(pollInterval);
     if (fbUnsubscribe) fbUnsubscribe();
     if (broadcastChannel) {
       broadcastChannel.removeEventListener('message', handleSync);
@@ -836,6 +965,15 @@ export function subscribeTeacherClassrooms(
  */
 export async function setClassroomClosed(classCode: string, isClosed: boolean): Promise<void> {
   const cleanCode = classCode.trim().toUpperCase();
+
+  // Backend
+  try {
+    fetch(`/api/classrooms/${cleanCode}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isClosed }),
+    }).catch(() => {});
+  } catch (e) {}
 
   // Firebase
   if (isFirebaseConfigured() && db) {
@@ -858,6 +996,11 @@ export async function setClassroomClosed(classCode: string, isClosed: boolean): 
 export async function resetClassroomStudents(classCode: string): Promise<void> {
   const cleanCode = classCode.trim().toUpperCase();
 
+  // Backend
+  try {
+    fetch(`/api/classrooms/${cleanCode}/reset`, { method: 'POST' }).catch(() => {});
+  } catch (e) {}
+
   // Firebase
   if (isFirebaseConfigured() && db) {
     try {
@@ -878,6 +1021,11 @@ export async function resetClassroomStudents(classCode: string): Promise<void> {
  */
 export async function deleteClassroom(classCode: string): Promise<void> {
   const cleanCode = classCode.trim().toUpperCase();
+
+  // Backend
+  try {
+    fetch(`/api/classrooms/${cleanCode}`, { method: 'DELETE' }).catch(() => {});
+  } catch (e) {}
 
   // Firebase
   if (isFirebaseConfigured() && db) {

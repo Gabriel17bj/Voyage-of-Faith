@@ -26,30 +26,34 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   currentStudentName,
 }) => {
   const t = UI_TEXT[language];
+  const [typedClassCode, setTypedClassCode] = useState<string>(classCode || 'FAITH');
+  const activeClassCode = (classCode || typedClassCode).trim().toUpperCase();
+
   const [activeTab, setActiveTab] = useState<'hall_of_fame' | 'classroom'>(
     classCode ? 'classroom' : 'hall_of_fame'
   );
   const [classStudents, setClassStudents] = useState<StudentSession[]>([]);
-  const [isLoadingClass, setIsLoadingClass] = useState<boolean>(Boolean(classCode));
+  const [isLoadingClass, setIsLoadingClass] = useState<boolean>(Boolean(activeClassCode));
 
   // Top records for Hall of Fame
   const sortedEntries = [...entries].sort((a, b) => a.timeMs - b.timeMs).slice(0, 10);
 
-  // Subscribe to classroom real-time ranking when class tab is active or classCode is provided
+  // Subscribe to classroom real-time ranking when class tab is active or activeClassCode is provided
   useEffect(() => {
-    if (!classCode) {
+    if (!activeClassCode) {
       setIsLoadingClass(false);
+      setClassStudents([]);
       return;
     }
 
     setIsLoadingClass(true);
-    const unsub = subscribeClassStudents(classCode, (students) => {
+    const unsub = subscribeClassStudents(activeClassCode, (students) => {
       setClassStudents(students);
       setIsLoadingClass(false);
     });
 
     return () => unsub();
-  }, [classCode]);
+  }, [activeClassCode]);
 
   const getRankPill = (index: number) => {
     switch (index) {
@@ -83,8 +87,8 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
             <div>
               <h2 className="font-extrabold text-base text-slate-100">{t.leaderboard}</h2>
               <span className="text-[10px] text-slate-400">
-                {activeTab === 'classroom' && classCode
-                  ? `[${classCode}] 우리 반 실시간 순위표`
+                {activeTab === 'classroom' && activeClassCode
+                  ? `[${activeClassCode}] 우리 반 실시간 순위표`
                   : '믿음의 이정표 명예의 전당'}
               </span>
             </div>
@@ -114,7 +118,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>우리 반 순위 {classCode ? `(${classCode})` : ''}</span>
+            <span>우리 반 순위 {activeClassCode ? `(${activeClassCode})` : ''}</span>
           </button>
 
           <button
@@ -136,17 +140,33 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
         {/* TAB 1: CLASSROOM REAL-TIME RANKING */}
         {activeTab === 'classroom' && (
           <div className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto scrollbar-thin pr-1">
-            {!classCode ? (
+            {/* Quick Class Code Input / Switch */}
+            <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-amber-200 shrink-0">수업 코드:</span>
+              <input
+                type="text"
+                value={typedClassCode}
+                onChange={(e) => setTypedClassCode(e.target.value.toUpperCase().slice(0, 5))}
+                placeholder="예: FAITH"
+                maxLength={5}
+                className="w-24 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-mono font-black text-xs text-center uppercase focus:outline-none focus:border-amber-400"
+              />
+              <span className="text-[10px] text-slate-400">
+                {classStudents.length > 0 ? `${classStudents.length}명 참여 중` : '5자리 코드 입력'}
+              </span>
+            </div>
+
+            {!activeClassCode ? (
               <div className="text-center py-8 px-4 bg-slate-950/60 rounded-2xl border border-slate-800 flex flex-col items-center gap-2">
                 <Users className="w-8 h-8 text-amber-400/50" />
-                <h4 className="text-xs font-black text-amber-300">현재 단독 항해 중입니다</h4>
+                <h4 className="text-xs font-black text-amber-300">수업 코드를 입력해주세요</h4>
                 <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
-                  선생님이 알려주신 5자리 수업 코드를 시작 화면의 [수업 코드]에 입력하고 출발하면, 우리 반 친구들의 실시간 순위와 점수를 함께 볼 수 있습니다.
+                  선생님이 알려주신 5자리 수업 코드를 입력하면, 우리 반 친구들의 실시간 순위와 점수를 함께 볼 수 있습니다. (예: FAITH)
                 </p>
               </div>
             ) : classStudents.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                {isLoadingClass ? '우리 반 순위 불러오는 중...' : '아직 참여한 학생 기록이 없습니다.'}
+              <div className="text-center py-8 text-slate-400 text-xs bg-slate-950/40 rounded-2xl border border-slate-800/80">
+                {isLoadingClass ? '우리 반 순위 불러오는 중...' : `[${activeClassCode}] 수업에 아직 참여한 학생 기록이 없습니다.`}
               </div>
             ) : (
               classStudents.map((st, idx) => {

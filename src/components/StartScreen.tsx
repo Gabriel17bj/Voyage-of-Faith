@@ -17,6 +17,7 @@ interface StartScreenProps {
   hasSavedProgress?: boolean;
   savedProgressStats?: { stars: number; completedCount: number };
   onResumeGame?: () => void;
+  initialClassCode?: string;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -30,13 +31,30 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   hasSavedProgress = false,
   savedProgressStats,
   onResumeGame,
+  initialClassCode = '',
 }) => {
   const t = UI_TEXT[language];
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [playerName, setPlayerName] = useState<string>('다윗');
   const [selectedHeroId, setSelectedHeroId] = useState<CharacterId>('sailor_boy');
   const [selectedPetId, setSelectedPetId] = useState<string>('lamb');
-  const [classCode, setClassCode] = useState<string>('');
+  const [classCode, setClassCode] = useState<string>(() => {
+    if (initialClassCode) return initialClassCode.trim().toUpperCase();
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const codeFromUrl = urlParams.get('class') || urlParams.get('code');
+      if (codeFromUrl) return codeFromUrl.trim().toUpperCase();
+      const cached = localStorage.getItem('PROMISE_LAND_LAST_CLASS_CODE');
+      if (cached) return cached.trim().toUpperCase();
+    } catch {}
+    return 'FAITH'; // Default demo class code for instant teacher-student sync test
+  });
+
+  React.useEffect(() => {
+    if (initialClassCode) {
+      setClassCode(initialClassCode.trim().toUpperCase());
+    }
+  }, [initialClassCode]);
 
   const handleOpenSetup = () => {
     sounds.playTap();
@@ -48,6 +66,11 @@ export const StartScreen: React.FC<StartScreenProps> = ({
     sounds.playTap();
     const finalName = playerName.trim() || (language === 'ko' ? '믿음의 용사' : 'Faith Warrior');
     const cleanClassCode = classCode.trim().toUpperCase();
+    if (cleanClassCode) {
+      try {
+        localStorage.setItem('PROMISE_LAND_LAST_CLASS_CODE', cleanClassCode);
+      } catch {}
+    }
     onStartGame({
       name: finalName,
       fam: (selectedPetId === 'lamb' ? 'shalom' : selectedPetId === 'turtle' ? 'wisdom' : 'agape') as FamId,
@@ -136,6 +159,21 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         <p className="text-xs sm:text-base md:text-lg text-amber-100 font-bold tracking-wide drop-shadow mt-1">
           {language === 'ko' ? '예수님과 함께하는 믿음의 항해' : 'Voyage of Faith with Jesus'}
         </p>
+
+        {/* Connected Classroom Pill Badge */}
+        {classCode && (
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="mt-1 flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-200 text-[11px] font-bold shadow backdrop-blur-sm cursor-pointer hover:bg-amber-500/30 transition"
+            onClick={handleOpenSetup}
+            title="클릭하여 참여자 정보 설정"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>수업 참여 모드:</span>
+            <span className="font-mono font-black text-amber-300">[{classCode}]</span>
+          </motion.div>
+        )}
       </div>
 
       {/* ========================================================= */}
@@ -356,6 +394,20 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <span className="text-amber-100">{hasSavedProgress ? '새 항해 시작' : '게임시작'}</span>
         </button>
 
+        {/* Realtime Classroom Connect Button */}
+        <button
+          onClick={() => {
+            sounds.playTap();
+            setShowProfileModal(true);
+          }}
+          className="rpg-btn-wood py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-emerald-400/90 bg-gradient-to-b from-[#1b5e35] to-[#0c351c] text-emerald-100 hover:brightness-110"
+          title="선생님이 주신 5자리 수업 코드를 입력하여 실시간 기록에 참여합니다"
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+          <span>수업 코드 접속</span>
+          {classCode && <span className="font-mono text-amber-300 font-black">[{classCode}]</span>}
+        </button>
+
         {/* Settings Button */}
         <button
           onClick={() => {
@@ -472,22 +524,66 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 </div>
 
                 {/* Class Code Input (선생님이 알려주신 5자리 수업 코드) */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5 bg-slate-950/80 p-2.5 rounded-xl border border-sky-500/40 shadow-inner">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-amber-200 flex items-center gap-1">
-                      <span>수업 코드</span>
-                      <span className="text-[9px] font-normal text-slate-400">(선택)</span>
+                    <label className="text-[11px] font-black text-amber-200 flex items-center gap-1.5">
+                      <span>🏫 수업 코드 (5자리)</span>
+                      <span className="text-[9px] font-normal text-slate-400">실시간 기록</span>
                     </label>
-                    <span className="text-[9px] text-sky-300">선생님이 알려주신 5자리 코드</span>
+                    <span className="text-[9px] text-emerald-300 font-bold">
+                      {classCode.trim().length === 5 ? '🟢 실시간 연동 준비' : '선생님이 알려주신 코드'}
+                    </span>
                   </div>
-                  <input
-                    type="text"
-                    value={classCode}
-                    onChange={(e) => setClassCode(e.target.value.toUpperCase().slice(0, 5))}
-                    placeholder="예: FAITH (비워두면 개인 단독 플레이)"
-                    maxLength={5}
-                    className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-amber-300 font-mono text-xs font-bold tracking-widest uppercase focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  />
+                  
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={classCode}
+                      onChange={(e) => setClassCode(e.target.value.toUpperCase().slice(0, 5))}
+                      placeholder="예: FAITH"
+                      maxLength={5}
+                      className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-sky-400/80 text-amber-300 font-mono text-sm font-black tracking-widest uppercase focus:ring-2 focus:ring-amber-400 focus:outline-none placeholder:text-slate-600 placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playTap();
+                        setClassCode('FAITH');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-sky-900/60 border border-sky-400/60 text-[10px] text-sky-200 font-bold hover:bg-sky-800 transition whitespace-nowrap cursor-pointer"
+                      title="체험용 기본 수업 코드 FAITH 입력"
+                    >
+                      예시 'FAITH'
+                    </button>
+                    {classCode && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playTap();
+                          setClassCode('');
+                        }}
+                        className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs cursor-pointer"
+                        title="수업 코드 지우기"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {classCode.trim().length === 5 ? (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-300 font-bold bg-emerald-950/70 px-2 py-1 rounded-lg border border-emerald-500/50">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                      <span>[{classCode.trim()}] 수업 실시간 연동 모드: 접속 즉시 선생님 대시보드에 기록됩니다.</span>
+                    </div>
+                  ) : classCode.trim().length > 0 ? (
+                    <div className="text-[10px] text-amber-300/90 font-medium px-1">
+                      5자리 영문/숫자 코드를 완성해주세요. (현재 {classCode.trim().length}/5자리)
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-400 px-1">
+                      💡 코드를 비워두시면 혼자 진행하는 개인 연습 모드로 시작됩니다.
+                    </div>
+                  )}
                 </div>
 
                 {/* Hero Character Selection (5 Characters from [믿음의 항해 캐릭터.png]) */}
@@ -589,10 +685,18 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  className="rpg-btn-wood w-full py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer mt-0.5 shadow-lg"
+                  className={`rpg-btn-wood w-full py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer mt-1 shadow-lg transition-transform active:scale-95 ${
+                    classCode.trim().length === 5
+                      ? 'border-emerald-400 bg-gradient-to-b from-[#1b5e35] to-[#0c351c] text-emerald-100 ring-2 ring-emerald-400/40'
+                      : ''
+                  }`}
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>믿음의 항해 출발하기</span>
+                  <span>
+                    {classCode.trim().length === 5
+                      ? `[${classCode.trim()}] 수업 실시간 접속 & 항해 시작`
+                      : '믿음의 항해 출발하기'}
+                  </span>
                 </button>
               </form>
             </motion.div>
