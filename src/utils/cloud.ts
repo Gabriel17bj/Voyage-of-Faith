@@ -728,8 +728,8 @@ export function subscribeClassStudents(
     console.warn('[Cloud] SSE not available:', e);
   }
 
-  // 3. Fallback Periodic Polling (every 2.5s) to guarantee zero desync
-  const pollInterval = window.setInterval(async () => {
+  // 3. Fallback Periodic Polling (immediate + every 1.5s) to guarantee zero desync
+  const fetchLatest = async () => {
     try {
       const res = await fetch(`/api/classrooms/${cleanCode}/students`);
       if (res.ok) {
@@ -741,7 +741,9 @@ export function subscribeClassStudents(
         }
       }
     } catch (e) {}
-  }, 2500);
+  };
+  fetchLatest();
+  const pollInterval = window.setInterval(fetchLatest, 1500);
 
   // 4. Firebase listener
   let fbUnsubscribe: (() => void) | null = null;

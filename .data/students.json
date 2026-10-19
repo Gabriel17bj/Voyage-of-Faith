@@ -300,5 +300,27 @@
       "isOnline": true,
       "isCompleted": false
     }
+  ],
+  "TEST9": [
+    {
+      "id": "st_new_student",
+      "classCode": "TEST9",
+      "studentName": "바울",
+      "famId": "agape",
+      "characterId": "explorer_boy",
+      "score": 0,
+      "solvedCount": 0,
+      "solvedQuestIds": [],
+      "totalStars": 0,
+      "hintsUsed": 0,
+      "wrongAnswersCount": 0,
+      "wrongQuestCounts": {},
+      "currentQuestId": null,
+      "elapsedTimeMs": 0,
+      "joinedAt": 1792416628428,
+      "lastActiveAt": 1792416628428,
+      "isOnline": true,
+      "isCompleted": false
+    }
   ]
 }

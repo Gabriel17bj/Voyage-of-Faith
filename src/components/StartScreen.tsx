@@ -34,7 +34,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   initialClassCode = '',
 }) => {
   const t = UI_TEXT[language];
-  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(() => Boolean(initialClassCode));
   const [playerName, setPlayerName] = useState<string>('다윗');
   const [selectedHeroId, setSelectedHeroId] = useState<CharacterId>('sailor_boy');
   const [selectedPetId, setSelectedPetId] = useState<string>('lamb');
@@ -53,6 +53,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   React.useEffect(() => {
     if (initialClassCode) {
       setClassCode(initialClassCode.trim().toUpperCase());
+      setShowProfileModal(true);
     }
   }, [initialClassCode]);
 
@@ -508,6 +509,21 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               </div>
 
               <form onSubmit={handleConfirmStart} className="flex flex-col gap-3">
+                {/* Invited Class Banner if accessed via link */}
+                {initialClassCode && (
+                  <div className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-950/90 to-teal-950/90 border border-emerald-400 text-emerald-200 text-xs shadow-md flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                    <div>
+                      <strong className="text-emerald-300 font-black text-xs block">
+                        🏫 선생님의 [{initialClassCode}] 수업에 초대되었습니다!
+                      </strong>
+                      <p className="text-[10px] text-slate-300 mt-0.5">
+                        닉네임을 확인하고 아래 <strong>[수업 실시간 접속 & 항해 시작]</strong>을 누르면 선생님 화면에 바로 등록됩니다.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Character Name Input */}
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-amber-200">

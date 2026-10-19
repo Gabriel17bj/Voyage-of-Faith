@@ -154,25 +154,17 @@ export const TeacherDashboard: React.FC = () => {
 
     const unsub = subscribeTeacherClassrooms(currentUser.email, (classes) => {
       setClassrooms(classes);
-      if (classes.length > 0 && (!selectedClassCode || !classes.some(c => c.code === selectedClassCode))) {
-        setSelectedClassCode(classes[0].code);
-      }
+      setSelectedClassCode((prev) => {
+        if (prev) return prev;
+        return classes.length > 0 ? classes[0].code : 'FAITH';
+      });
     });
 
     return () => unsub();
-  }, [currentUser, isDemoMode, selectedClassCode]);
+  }, [currentUser, isDemoMode]);
 
-  // 4. Students listener for selected class
+  // 4. Students listener for selected class (Always active in real-time)
   useEffect(() => {
-    if (isDemoMode) {
-      if (selectedClassCode === 'FAITH') {
-        setStudents(DEMO_STUDENTS);
-      } else {
-        setStudents([]);
-      }
-      return;
-    }
-
     if (!selectedClassCode) {
       setStudents([]);
       return;
@@ -180,6 +172,12 @@ export const TeacherDashboard: React.FC = () => {
 
     prevStudentIdsRef.current = new Set();
     const unsub = subscribeClassStudents(selectedClassCode, (stList) => {
+      // If demo mode on default FAITH and no server students joined yet, show demo students
+      if (isDemoMode && selectedClassCode === 'FAITH' && stList.length === 0) {
+        setStudents(DEMO_STUDENTS);
+        return;
+      }
+
       if (prevStudentIdsRef.current.size > 0 && stList.length > prevStudentIdsRef.current.size) {
         const newlyJoined = stList.find((s) => !prevStudentIdsRef.current.has(s.id));
         if (newlyJoined) {
@@ -274,35 +272,26 @@ export const TeacherDashboard: React.FC = () => {
     }
   };
 
-  // Handle Create Classroom
+  // Handle Create Classroom (Persists to server and sets as current active class)
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser?.email) return;
+    const teacherEmail = currentUser?.email || 'teacher@church.org';
 
     sounds.playTap();
 
-    if (isDemoMode) {
+    const res = await createClassroom(newClassCode, newClassTitle, teacherEmail);
+    if (res.success) {
+      sounds.playCorrect();
       const newClass: Classroom = {
         code: newClassCode,
         title: newClassTitle.trim() || `${newClassCode} 수업`,
-        teacherEmail: currentUser.email,
+        teacherEmail,
         createdAt: Date.now(),
         isClosed: false,
       };
-      setClassrooms((prev) => [newClass, ...prev]);
+      setClassrooms((prev) => [newClass, ...prev.filter((c) => c.code !== newClassCode)]);
       setSelectedClassCode(newClassCode);
       setStudents([]);
-      setShowNewClassModal(false);
-      setNewClassTitle('');
-      setNewClassCode(generateClassCode());
-      sounds.playCorrect();
-      return;
-    }
-
-    const res = await createClassroom(newClassCode, newClassTitle, currentUser.email);
-    if (res.success) {
-      sounds.playCorrect();
-      setSelectedClassCode(newClassCode);
       setShowNewClassModal(false);
       setNewClassTitle('');
       setNewClassCode(generateClassCode());
@@ -1588,7 +1577,7 @@ export const TeacherDashboard: React.FC = () => {
             {/* Direct Participation Link */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                <span>원클릭 자동 접속 링크</span>
+                <span>원클릭 학생 자동 접속 링크</span>
                 <span className="text-[10px] text-sky-300 font-normal">코드가 자동 입력됩니다</span>
               </label>
               <div className="flex items-center gap-2">
@@ -1597,7 +1586,7 @@ export const TeacherDashboard: React.FC = () => {
                   readOnly
                   value={
                     typeof window !== 'undefined'
-                      ? `${window.location.origin}${window.location.pathname}?code=${selectedClassCode}`
+                      ? `${window.location.href.split('#')[0].split('?')[0]}?code=${selectedClassCode}`
                       : `?code=${selectedClassCode}`
                   }
                   className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 select-all"
@@ -1605,7 +1594,8 @@ export const TeacherDashboard: React.FC = () => {
                 <button
                   onClick={() => {
                     sounds.playTap();
-                    const link = `${window.location.origin}${window.location.pathname}?code=${selectedClassCode}`;
+                    const cleanBase = window.location.href.split('#')[0].split('?')[0];
+                    const link = `${cleanBase}?code=${selectedClassCode}`;
                     navigator.clipboard.writeText(link).then(() => {
                       setCopiedInviteLink(true);
                       setTimeout(() => setCopiedInviteLink(false), 2000);
@@ -1617,6 +1607,20 @@ export const TeacherDashboard: React.FC = () => {
                   <span>{copiedInviteLink ? '복사됨!' : '링크 복사'}</span>
                 </button>
               </div>
+
+              {/* Direct Open in New Tab for instant teacher testing */}
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playTap();
+                  const cleanBase = window.location.href.split('#')[0].split('?')[0];
+                  const link = `${cleanBase}?code=${selectedClassCode}`;
+                  window.open(link, '_blank');
+                }}
+                className="w-full py-2 rounded-xl bg-sky-900/40 hover:bg-sky-800/60 border border-sky-400/50 text-sky-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 mt-1"
+              >
+                <span>🚀 새 탭에서 학생으로 바로 접속 테스트해보기</span>
+              </button>
             </div>
 
             {/* Step-by-Step Instructions for Teachers */}

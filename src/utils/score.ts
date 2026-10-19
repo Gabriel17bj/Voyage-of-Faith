@@ -44,28 +44,20 @@ export function calculateScore(params: ScoreParams): number {
   // 4. 오답 감점 (최대 -500점)
   const wrongPenalty = Math.min(500, Math.max(0, wrongAnswersCount) * 20);
 
-  // 5. 시간 보너스
-  let timeBonus = 0;
+  // 5. 완주 보너스 (36문제 전체 완주 시에만 일회성으로 지급, 플레이 중에는 시간 경과로 인한 감점 없음!)
+  let completionBonus = 0;
   if (isCompleted) {
-    // 36문제 완료 보너스: 25분(1,500,000ms) 기준
-    const baseTargetMs = 25 * 60 * 1000;
+    // 36문제 완료 보너스: 1,000점 기본 보장 + 신속 완주(20분 이내) 시 최대 1,000점 추가
+    const baseTargetMs = 20 * 60 * 1000;
     if (elapsedTimeMs <= baseTargetMs) {
-      // 15분 미만 초고속 완주 시 최대 2,000점, 25분이면 1,000점
       const ratio = 1 - Math.min(1, Math.max(0, elapsedTimeMs / baseTargetMs));
-      timeBonus = Math.round(1000 + ratio * 1000);
+      completionBonus = Math.round(1000 + ratio * 1000);
     } else {
-      // 25분 초과 시에도 완주 보너스 최소 500점 보장 (시간에 따라 완만 감소)
-      timeBonus = Math.max(200, Math.round(1000 - ((elapsedTimeMs - baseTargetMs) / 60000) * 25));
-    }
-  } else if (solvedCount > 0) {
-    // 진행 중 시간 효율 보너스 (문제당 평균 40초 이내면 보너스)
-    const expectedTimeMs = solvedCount * 45 * 1000;
-    if (elapsedTimeMs < expectedTimeMs) {
-      timeBonus = Math.min(600, Math.round(((expectedTimeMs - elapsedTimeMs) / expectedTimeMs) * 600));
+      completionBonus = 1000;
     }
   }
 
-  const rawScore = questBaseScore + starScore + timeBonus - hintPenalty - wrongPenalty;
+  const rawScore = questBaseScore + starScore + completionBonus - hintPenalty - wrongPenalty;
 
   // 0 ~ 20,000점 클램핑
   return Math.max(0, Math.min(20000, rawScore));

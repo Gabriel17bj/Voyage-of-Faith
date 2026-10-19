@@ -255,6 +255,7 @@ function broadcastToClass(classCode: string, payload: any) {
     if (client.classCode === clean || client.classCode === '*') {
       try {
         client.res.write(dataString);
+        (client.res as any).flush?.();
       } catch (err) {
         sseClients.splice(i, 1);
       }
@@ -498,6 +499,7 @@ app.get('/api/classrooms/:code/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
   const clientId = `sse_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -507,6 +509,7 @@ app.get('/api/classrooms/:code/stream', (req, res) => {
   // Send initial data immediately
   const initialStudents = getStudentsForClass(cleanCode);
   res.write(`data: ${JSON.stringify({ type: 'INITIAL_STATE', classCode: cleanCode, students: initialStudents })}\n\n`);
+  (res as any).flush?.();
 
   req.on('close', () => {
     const idx = sseClients.findIndex((c) => c.id === clientId);
