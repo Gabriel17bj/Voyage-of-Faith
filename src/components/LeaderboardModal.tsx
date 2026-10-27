@@ -77,7 +77,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/95 backdrop-blur-md">
-      <div className="relative w-full max-w-lg bg-slate-900 border-2 sm:border-4 border-slate-700 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col gap-3.5 text-slate-100 max-h-[90vh]">
+      <div className="relative w-full max-w-lg bg-slate-900 border-2 sm:border-4 border-slate-700 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col gap-3.5 text-slate-100 max-h-[90dvh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
@@ -139,7 +139,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
         {/* TAB 1: CLASSROOM REAL-TIME RANKING */}
         {activeTab === 'classroom' && (
-          <div className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto scrollbar-thin pr-1">
+          <div className="flex flex-col gap-2 max-h-[55dvh] overflow-y-auto scrollbar-thin pr-1">
             {/* Quick Class Code Input / Switch */}
             <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold text-amber-200 shrink-0">수업 코드:</span>
@@ -239,7 +239,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
         {/* TAB 2: HALL OF FAME (Local Top 10) */}
         {activeTab === 'hall_of_fame' && (
-          <div className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto scrollbar-thin pr-1">
+          <div className="flex flex-col gap-2 max-h-[55dvh] overflow-y-auto scrollbar-thin pr-1">
             {sortedEntries.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-xs leading-relaxed px-4">
                 <Sparkles className="w-8 h-8 mx-auto text-amber-400/40 mb-2" />

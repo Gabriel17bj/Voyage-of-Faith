@@ -37,6 +37,9 @@ interface RpgWorldProps {
   onOpenLeaderboard: () => void;
   onOpenRules: () => void;
   onOpenSettings: () => void;
+  score?: number;
+  classCode?: string;
+  isClassConnected?: boolean;
 }
 
 interface WorldObject {
@@ -66,6 +69,9 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
   onOpenLeaderboard,
   onOpenRules,
   onOpenSettings,
+  score = 0,
+  classCode,
+  isClassConnected = false,
 }) => {
   const t = UI_TEXT[language];
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -88,7 +94,11 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
 
   // Pet companion follower with spring-damper physics
   const [petPos, setPetPos] = useState<Vector2>({ x: 460, y: 310 });
+  const petPosRef = useRef<Vector2>({ x: 460, y: 310 });
   const petVelRef = useRef<Vector2>({ x: 0, y: 0 });
+  const playerFacingRef = useRef<'down' | 'up' | 'left' | 'right'>('down');
+  const particlesRef = useRef<PhysicsParticle[]>([]);
+  const wasMovingRef = useRef<boolean>(false);
 
   // Joystick & touch control state (Ref for zero-latency 60FPS loop + state for visual knob)
   const joystickVectorRef = useRef<Vector2>({ x: 0, y: 0 });
@@ -262,6 +272,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
     rbRef.current.teleport({ x: 500, y: 300 });
     setPlayerPos({ x: 500, y: 300 });
     setPetPos({ x: 460, y: 310 });
+    petPosRef.current = { x: 460, y: 310 };
     setPlayerVelocity({ x: 0, y: 0 });
     targetWalkPos.current = null;
   }, [currentSectorId]);
@@ -313,6 +324,16 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
 
       const currentSpeed = Math.sqrt(rb.velocity.x * rb.velocity.x + rb.velocity.y * rb.velocity.y);
       const moving = currentSpeed > 0.15;
+      const petSettled =
+        Math.abs(petVelRef.current.x) < 0.02 && Math.abs(petVelRef.current.y) < 0.02;
+
+      // 정지 상태에서는 렌더링을 건너뛰어 모바일 배터리/발열을 줄임
+      if (!moving && !wasMovingRef.current && particlesRef.current.length === 0 && petSettled) {
+        animFrame = requestAnimationFrame(gameLoop);
+        return;
+      }
+      wasMovingRef.current = moving;
+
       setIsMoving(moving);
       setIsColliding(hasCollided);
       setPlayerVelocity({ x: rb.velocity.x, y: rb.velocity.y });
@@ -320,10 +341,13 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
 
       // Determine facing direction from movement velocity
       if (moving) {
-        if (Math.abs(rb.velocity.x) > Math.abs(rb.velocity.y) * 0.8) {
-          setPlayerFacing(rb.velocity.x > 0 ? 'right' : 'left');
-        } else {
-          setPlayerFacing(rb.velocity.y > 0 ? 'down' : 'up');
+        const facing: 'down' | 'up' | 'left' | 'right' =
+          Math.abs(rb.velocity.x) > Math.abs(rb.velocity.y) * 0.8
+            ? rb.velocity.x > 0 ? 'right' : 'left'
+            : rb.velocity.y > 0 ? 'down' : 'up';
+        if (facing !== playerFacingRef.current) {
+          playerFacingRef.current = facing;
+          setPlayerFacing(facing);
         }
 
         // Natural walk cycle animation phase
@@ -343,13 +367,13 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
             scale: isDash ? 1.2 : 0.8,
             type: isDash ? 'dash' : 'ripple',
           };
-          setParticles((prev) => [...prev.slice(-15), newParticle]);
+          particlesRef.current = [...particlesRef.current.slice(-15), newParticle];
         }
       }
 
       // Update active particles (decay alpha & position)
-      setParticles((prev) =>
-        prev
+      if (particlesRef.current.length > 0) {
+        particlesRef.current = particlesRef.current
           .map((p) => ({
             ...p,
             x: p.x + p.vx,
@@ -357,34 +381,37 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
             alpha: p.alpha - 0.04,
             scale: p.scale * 1.03,
           }))
-          .filter((p) => p.alpha > 0.05)
-      );
+          .filter((p) => p.alpha > 0.05);
+        setParticles(particlesRef.current);
+      }
 
       // Companion Pet soft spring-damper follower physics
-      const petTargetOffsetX = playerFacing === 'right' ? -38 : playerFacing === 'left' ? 38 : -20;
-      const petTargetOffsetY = playerFacing === 'down' ? -26 : playerFacing === 'up' ? 26 : -16;
+      const facingNow = playerFacingRef.current;
+      const petTargetOffsetX = facingNow === 'right' ? -38 : facingNow === 'left' ? 38 : -20;
+      const petTargetOffsetY = facingNow === 'down' ? -26 : facingNow === 'up' ? 26 : -16;
       const petTargetX = newPos.x + petTargetOffsetX;
       const petTargetY = newPos.y + petTargetOffsetY;
 
       const springK = 0.08;
       const petDamping = 0.82;
-      const petDx = petTargetX - petPos.x;
-      const petDy = petTargetY - petPos.y;
+      const petDx = petTargetX - petPosRef.current.x;
+      const petDy = petTargetY - petPosRef.current.y;
 
       petVelRef.current.x = (petVelRef.current.x + petDx * springK) * petDamping;
       petVelRef.current.y = (petVelRef.current.y + petDy * springK) * petDamping;
 
-      setPetPos((prev) => ({
-        x: prev.x + petVelRef.current.x,
-        y: prev.y + petVelRef.current.y,
-      }));
+      petPosRef.current = {
+        x: petPosRef.current.x + petVelRef.current.x,
+        y: petPosRef.current.y + petVelRef.current.y,
+      };
+      setPetPos(petPosRef.current);
 
       animFrame = requestAnimationFrame(gameLoop);
     };
 
     animFrame = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(animFrame);
-  }, [physicsColliders, playerFacing, petPos]);
+  }, [physicsColliders]);
 
   // Keyboard Event Listeners
   useEffect(() => {
@@ -434,6 +461,8 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
       const isLocked = q.id > 1 && !solvedQuestIds.includes(q.id - 1);
       if (isLocked) {
         sounds.playWrong();
+        setToastMessage(`🔒 먼저 #${activeQuestId}번 말씀을 풀어야 열 수 있어요! (빛나는 표시를 찾아가세요)`);
+        setTimeout(() => setToastMessage(null), 3000);
       } else {
         sounds.playTap();
         onOpenQuest(q.id);
@@ -490,7 +519,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
     const dx = e.clientX - joystickCenterRef.current.x;
     const dy = e.clientY - joystickCenterRef.current.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    const maxRadius = 32;
+    const maxRadius = e.currentTarget.getBoundingClientRect().width * 0.36;
 
     if (distance === 0) {
       joystickVectorRef.current = { x: 0, y: 0 };
@@ -555,13 +584,13 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col items-center justify-center select-none overflow-hidden font-sans">
+    <div className="w-full h-full flex flex-col items-center justify-center select-none overflow-hidden font-sans">
       
       {/* ========================================================= */}
       {/* 16:9 RPG WIDESCREEN FULL-CANVAS STAGE CONTAINER */}
       {/* ========================================================= */}
       <div 
-        className="relative w-full max-w-[1200px] max-h-[96dvh] aspect-[16/9] bg-slate-950 rounded-2xl sm:rounded-3xl border-2 sm:border-4 border-[#8e5837] shadow-2xl overflow-hidden flex flex-col justify-between"
+        className="relative w-full h-full max-w-[1200px] lg:h-auto lg:max-h-full lg:aspect-[16/9] bg-slate-950 rounded-none lg:rounded-3xl border-0 lg:border-4 border-[#8e5837] shadow-2xl overflow-hidden flex flex-col justify-between"
         style={{
           boxShadow: '0 0 35px rgba(0, 0, 0, 0.9), inset 0 0 15px rgba(0,0,0,0.8)'
         }}
@@ -570,10 +599,10 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
         {/* ======================================================= */}
         {/* TOP RPG HUD BAR (Status, Map Info, Timer, Menu) */}
         {/* ======================================================= */}
-        <div className="relative z-30 w-full bg-slate-950/90 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 border-b border-[#5c3823] flex items-center justify-between shadow-lg shrink-0">
+        <div className="relative z-30 w-full bg-slate-950/90 backdrop-blur-md px-3 sm:px-4 pb-1.5 sm:pb-2 pt-[max(0.375rem,env(safe-area-inset-top))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] border-b border-[#5c3823] flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-2 gap-y-1 shadow-lg shrink-0">
           
           {/* Left: Player Profile & Faith Bar */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="relative w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-amber-400 border-2 border-amber-200 shadow-md flex items-center justify-center text-base sm:text-lg shrink-0">
               <span>{fam.emoji}</span>
               <span className="absolute -bottom-1 -right-1 bg-blue-600 text-[8px] sm:text-[9px] font-black text-white px-1 rounded-md border border-slate-900">
@@ -583,12 +612,24 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
 
             <div className="flex flex-col justify-center">
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-xs sm:text-sm text-slate-100 drop-shadow">
+                <span className="font-extrabold text-xs sm:text-sm text-slate-100 drop-shadow truncate max-w-[6rem] sm:max-w-none">
                   {playerProfile.name}
                 </span>
                 <span className="text-[10px] text-amber-300 font-bold hidden sm:inline-block">
                   ({fam.name[language]})
                 </span>
+                {classCode && (
+                  <span
+                    className={`flex items-center gap-1 px-1.5 py-px rounded-full border text-[9px] font-bold whitespace-nowrap ${
+                      isClassConnected ? 'border-emerald-400/70 text-emerald-300 bg-emerald-950/70' : 'border-red-400/70 text-red-300 bg-red-950/70'
+                    }`}
+                    title={isClassConnected ? '선생님 대시보드에 실시간 기록 중' : '수업 서버에 연결되지 않음'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isClassConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                    <span className="font-mono">{classCode}</span>
+                    <span className="hidden sm:inline">{isClassConnected ? '기록 중' : '연결 안 됨'}</span>
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="w-16 sm:w-20 h-1.5 sm:h-2 bg-slate-900 rounded-full border border-slate-700 overflow-hidden">
@@ -603,31 +644,34 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 <span className="text-[8px] sm:text-[9px] text-amber-300 font-black flex items-center bg-amber-950/80 px-1 rounded border border-amber-500/40">
                   ⭐ {totalStars}
                 </span>
+                <span className="text-[9px] sm:text-[10px] text-amber-200 font-black font-mono flex items-center bg-slate-900 px-1 rounded border border-amber-500/40 whitespace-nowrap">
+                  🏆 {score.toLocaleString()}
+                </span>
               </div>
             </div>
           </div>
 
           {/* Center: Current Map Name & Target */}
-          <div className="flex flex-col items-center text-center">
-            <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-900/90 border border-amber-600/50 shadow">
+          <div className="order-last sm:order-none w-full sm:w-auto min-w-0 flex flex-row sm:flex-col items-center justify-center gap-2 sm:gap-0 text-center">
+            <div className="flex items-center gap-1 shrink-0 px-2.5 py-0.5 rounded-full bg-slate-900/90 border border-amber-600/50 shadow">
               <MapPin className="w-3 h-3 text-amber-400" />
               <span className="text-[10px] sm:text-xs font-black text-amber-200 tracking-wide">
                 {currentSector.name[language].split('(')[0]}
               </span>
             </div>
             {nearestObject ? (
-              <span className="text-[9px] sm:text-[10px] text-yellow-300 font-bold animate-pulse mt-0.5">
+              <span className="text-[10px] text-yellow-300 font-bold animate-pulse sm:mt-0.5 truncate">
                 [A 버튼] #{nearestObject.questId} {nearestObject.name[language]} 조사하기!
               </span>
             ) : (
-              <span className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5 hidden sm:inline-block">
+              <span className="text-[10px] text-slate-400 sm:mt-0.5 truncate">
                 다음 목표: #{activeQuestId} {quests[activeQuestId - 1]?.objectName[language]}
               </span>
             )}
           </div>
 
           {/* Right: Timer, Sector Warp & Quick Action Buttons */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <div className="px-2 py-0.5 sm:py-1 bg-slate-900/90 rounded-xl border border-slate-700 text-red-400 font-mono font-bold text-xs sm:text-sm flex items-center gap-1 shadow">
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-red-500 animate-ping" />
               <span>{elapsedTimeFormatted}</span>
@@ -638,10 +682,10 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onOpenLeaderboard();
               }}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition"
+              className="p-2 sm:p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition active:scale-95"
               title="믿음의 이정표"
             >
-              <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <Trophy className="w-4 h-4" />
             </button>
 
             <button
@@ -649,10 +693,10 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onOpenRules();
               }}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              className="p-2 sm:p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition active:scale-95"
               title="항해 규칙"
             >
-              <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <HelpCircle className="w-4 h-4" />
             </button>
 
             <button
@@ -660,10 +704,10 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onOpenSettings();
               }}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              className="p-2 sm:p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition active:scale-95"
               title="환경 설정"
             >
-              <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <Settings className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -671,10 +715,11 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
         {/* ======================================================= */}
         {/* INTERACTIVE 2D RPG MAP CANVAS (Full Height, Generous Spacing) */}
         {/* ======================================================= */}
+        <div className="relative flex-1 min-h-0 w-full flex flex-col max-lg:landscape:flex-row">
         <div
           ref={containerRef}
           onClick={handleMapClick}
-          className={`relative flex-1 w-full overflow-hidden ${getSectorBackground()} cursor-crosshair transition-colors duration-500`}
+          className={`relative flex-1 min-h-0 min-w-0 w-full overflow-hidden ${getSectorBackground()} cursor-crosshair transition-colors duration-500`}
         >
           {/* Faith Voyage Sea Background at 40% Opacity */}
           <img
@@ -719,7 +764,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onSelectSector(currentSectorId - 1);
               }}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 px-2.5 py-1 rounded-xl bg-slate-900/80 backdrop-blur-sm border border-slate-700 text-slate-300 hover:text-white text-xs font-bold shadow-lg flex items-center gap-1 active:scale-95 transition cursor-pointer"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 px-3 py-2 sm:px-2.5 sm:py-1 rounded-xl bg-slate-900/80 backdrop-blur-sm border border-slate-700 text-slate-300 hover:text-white text-xs font-bold shadow-lg flex items-center gap-1 active:scale-95 transition cursor-pointer"
             >
               ◀ 이전 구역
             </button>
@@ -739,7 +784,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onSelectSector(nextSectorId);
               }}
-              className={`absolute right-2.5 top-1/2 -translate-y-1/2 z-20 px-2.5 py-1 rounded-xl backdrop-blur-sm text-xs font-bold shadow-lg flex items-center gap-1 active:scale-95 transition cursor-pointer border ${
+              className={`absolute right-2.5 top-1/2 -translate-y-1/2 z-20 max-w-[42%] px-3 py-2 sm:px-2.5 sm:py-1 rounded-xl backdrop-blur-sm text-xs font-bold shadow-lg flex items-center gap-1 active:scale-95 transition cursor-pointer border ${
                 isSectorUnlocked(currentSectorId + 1)
                   ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300 font-black animate-pulse shadow-amber-500/50'
                   : 'bg-slate-900/90 text-slate-400 border-slate-700 hover:text-slate-300'
@@ -979,14 +1024,21 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
             </div>
           )}
 
+
+        </div>
+
+        {/* ======================================================= */}
+        {/* CONTROL DECK: 세로 화면에서는 지도 아래 별도 조작 패널, 가로/PC에서는 지도 위 오버레이 */}
+        {/* ======================================================= */}
+        <div className="relative z-30 shrink-0 w-full flex items-center justify-between gap-2 px-3 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] bg-slate-950/95 border-t border-[#5c3823] max-lg:landscape:contents lg:absolute lg:inset-x-0 lg:bottom-0 lg:items-end lg:bg-transparent lg:border-0 lg:pointer-events-none lg:p-4">
           {/* ======================================================= */}
           {/* FLOATING MOBILE ACTION HUD CONTROLS (Semi-Transparent Overlaid) */}
           {/* ======================================================= */}
           
           {/* 1. BOTTOM-LEFT: Virtual Floating Joystick / D-Pad */}
-          <div className="absolute bottom-2.5 left-2.5 sm:bottom-4 sm:left-4 z-30 pointer-events-auto select-none">
+          <div className="pointer-events-auto select-none shrink-0 max-lg:landscape:order-first max-lg:landscape:flex max-lg:landscape:items-end max-lg:landscape:bg-slate-950 max-lg:landscape:border-r max-lg:landscape:border-[#5c3823] max-lg:landscape:p-2 max-lg:landscape:pb-[max(0.5rem,env(safe-area-inset-bottom))] max-lg:landscape:pl-[max(0.5rem,env(safe-area-inset-left))]">
             <div
-              className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-slate-950/40 hover:bg-slate-950/60 backdrop-blur-[2px] border border-white/20 shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center justify-center touch-none transition-colors"
+              className="relative w-28 h-28 max-lg:landscape:w-24 max-lg:landscape:h-24 lg:w-24 lg:h-24 rounded-full bg-slate-950/40 hover:bg-slate-950/60 backdrop-blur-[2px] border border-white/20 shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center justify-center touch-none transition-colors"
               onPointerDown={handleJoystickPointerDown}
               onPointerMove={handleJoystickPointerMove}
               onPointerUp={handleJoystickPointerUp}
@@ -996,6 +1048,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
               <button
                 onPointerDown={(e) => { e.stopPropagation(); handleDirectionPress('up'); }}
                 onPointerUp={(e) => { e.stopPropagation(); handleDirectionRelease(); }}
+                onPointerCancel={handleDirectionRelease}
                 className="absolute top-1 p-1 text-slate-300/70 hover:text-amber-300"
               >
                 <ArrowUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1003,6 +1056,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
               <button
                 onPointerDown={(e) => { e.stopPropagation(); handleDirectionPress('down'); }}
                 onPointerUp={(e) => { e.stopPropagation(); handleDirectionRelease(); }}
+                onPointerCancel={handleDirectionRelease}
                 className="absolute bottom-1 p-1 text-slate-300/70 hover:text-amber-300"
               >
                 <ArrowDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1010,6 +1064,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
               <button
                 onPointerDown={(e) => { e.stopPropagation(); handleDirectionPress('left'); }}
                 onPointerUp={(e) => { e.stopPropagation(); handleDirectionRelease(); }}
+                onPointerCancel={handleDirectionRelease}
                 className="absolute left-1 p-1 text-slate-300/70 hover:text-amber-300"
               >
                 <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1017,6 +1072,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
               <button
                 onPointerDown={(e) => { e.stopPropagation(); handleDirectionPress('right'); }}
                 onPointerUp={(e) => { e.stopPropagation(); handleDirectionRelease(); }}
+                onPointerCancel={handleDirectionRelease}
                 className="absolute right-1 p-1 text-slate-300/70 hover:text-amber-300"
               >
                 <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1024,7 +1080,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
 
               {/* Moving Stick Center Knob */}
               <div
-                className="w-7 h-7 sm:w-9 sm:h-9 rounded-full bg-gradient-to-b from-amber-500/80 to-amber-700/80 border border-amber-300/80 shadow-md flex items-center justify-center pointer-events-none transition-transform duration-75"
+                className="w-11 h-11 lg:w-9 lg:h-9 rounded-full bg-gradient-to-b from-amber-500/80 to-amber-700/80 border border-amber-300/80 shadow-md flex items-center justify-center pointer-events-none transition-transform duration-75"
                 style={{
                   transform: `translate(${joystickVisual.x}px, ${joystickVisual.y}px)`,
                 }}
@@ -1035,18 +1091,18 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
           </div>
 
           {/* 2. BOTTOM-CENTER: Floating Compact Hint Toolbelt */}
-          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-slate-950/50 backdrop-blur-[3px] border border-white/15 px-2.5 py-1 rounded-2xl shadow-lg">
+          <div className="pointer-events-auto flex flex-col lg:flex-row items-center gap-1.5 lg:gap-2 bg-slate-950/50 backdrop-blur-[3px] border border-white/15 p-1.5 lg:px-2.5 lg:py-1 rounded-2xl shadow-lg max-lg:landscape:justify-center max-lg:landscape:rounded-none max-lg:landscape:border-0 max-lg:landscape:border-l max-lg:landscape:border-[#5c3823] max-lg:landscape:bg-slate-950 max-lg:landscape:shadow-none">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 sounds.playTap();
                 onUseHint('magnifier');
               }}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-slate-700/60 text-[10px] font-bold text-blue-200 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-2 lg:px-1.5 lg:py-0.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-slate-700/60 text-sm lg:text-[10px] font-bold text-blue-200 active:scale-95 transition"
               title="빛의 돋보기 (1번 키)"
             >
               <span>🔍</span>
-              <span className="font-mono text-[9px] text-blue-300">{hints.magnifier}</span>
+              <span className="font-mono text-xs lg:text-[9px] text-blue-300">{hints.magnifier}</span>
             </button>
 
             <button
@@ -1055,11 +1111,11 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onUseHint('hourglass');
               }}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-slate-700/60 text-[10px] font-bold text-amber-200 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-2 lg:px-1.5 lg:py-0.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-slate-700/60 text-sm lg:text-[10px] font-bold text-amber-200 active:scale-95 transition"
               title="진리의 모래시계 (2번 키)"
             >
               <span>⌛</span>
-              <span className="font-mono text-[9px] text-amber-300">{hints.hourglass}</span>
+              <span className="font-mono text-xs lg:text-[9px] text-amber-300">{hints.hourglass}</span>
             </button>
 
             <button
@@ -1068,16 +1124,16 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 sounds.playTap();
                 onUseHint('whisper');
               }}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-slate-700/60 text-[10px] font-bold text-emerald-200 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-2 lg:px-1.5 lg:py-0.5 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 border border-slate-700/60 text-sm lg:text-[10px] font-bold text-emerald-200 active:scale-95 transition"
               title="팜의 속삭임 (3번 키)"
             >
               <span>💬</span>
-              <span className="font-mono text-[9px] text-emerald-300">{hints.whisper}</span>
+              <span className="font-mono text-xs lg:text-[9px] text-emerald-300">{hints.whisper}</span>
             </button>
           </div>
 
           {/* 3. BOTTOM-RIGHT: Floating Action Buttons (A: 조사/암송, B: 대시) */}
-          <div className="absolute bottom-2.5 right-2.5 sm:bottom-4 sm:right-4 z-30 pointer-events-auto flex items-center gap-2 sm:gap-3 select-none">
+          <div className="pointer-events-auto flex items-end gap-3 select-none shrink-0 max-lg:landscape:flex-col-reverse max-lg:landscape:items-center max-lg:landscape:justify-center max-lg:landscape:bg-slate-950 max-lg:landscape:p-2 max-lg:landscape:pr-[max(0.5rem,env(safe-area-inset-right))]">
             
             {/* Button B: Dash / Run */}
             <button
@@ -1091,7 +1147,15 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 isDashingRef.current = false;
                 setIsDashing(false);
               }}
-              className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border border-white/20 font-black text-xs sm:text-sm flex flex-col items-center justify-center shadow-lg transition backdrop-blur-[2px] active:scale-90 ${
+              onPointerCancel={() => {
+                isDashingRef.current = false;
+                setIsDashing(false);
+              }}
+              onPointerLeave={() => {
+                isDashingRef.current = false;
+                setIsDashing(false);
+              }}
+              className={`touch-none w-14 h-14 lg:w-12 lg:h-12 rounded-full border border-white/20 font-black text-xs sm:text-sm flex flex-col items-center justify-center shadow-lg transition backdrop-blur-[2px] active:scale-90 ${
                 isDashing
                   ? 'bg-blue-600/90 border-blue-300 text-white shadow-blue-500/50 scale-95'
                   : 'bg-slate-950/40 text-slate-300 hover:bg-slate-900/60'
@@ -1109,7 +1173,7 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
                 e.stopPropagation();
                 handleInteractAction();
               }}
-              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 font-black text-xs sm:text-sm flex flex-col items-center justify-center shadow-2xl transition backdrop-blur-[2px] ${
+              className={`touch-none w-[4.5rem] h-[4.5rem] lg:w-14 lg:h-14 mb-6 max-lg:landscape:mb-0 lg:mb-0 rounded-full border-2 font-black text-xs sm:text-sm flex flex-col items-center justify-center shadow-2xl transition backdrop-blur-[2px] ${
                 nearestObject
                   ? 'bg-gradient-to-b from-amber-400/90 to-amber-600/90 border-amber-200 text-slate-950 ring-4 ring-amber-400/50 animate-pulse'
                   : 'bg-amber-600/60 hover:bg-amber-600/80 border-amber-400/70 text-slate-100'
@@ -1123,13 +1187,13 @@ export const RpgWorld: React.FC<RpgWorldProps> = ({
             </motion.button>
 
           </div>
-
+        </div>
         </div>
 
       </div>
 
       {/* Helper Legend on PC Bottom */}
-      <div className="mt-1 sm:mt-1.5 text-[10px] sm:text-[11px] text-slate-400 hidden sm:flex items-center gap-3 sm:gap-4">
+      <div className="mt-1.5 text-[11px] text-slate-400 hidden lg:flex items-center gap-4 shrink-0">
         <span>🕹️ <strong>조작법</strong>: 방향키/WASD/가상스틱 (이동)</span>
         <span>⚡ <strong>Shift/B버튼</strong> (대시)</span>
         <span>✨ <strong>Space/A버튼</strong> (조사/암송)</span>

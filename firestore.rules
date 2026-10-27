@@ -1,56 +1,59 @@
 rules_version = '2';
+
+// PROMISE LAND : 믿음의 항해 — 수업 실시간 모니터링용 Firestore 보안 규칙
+//
+// 학생은 로그인 없이(수업 코드 + 이름) 참여하므로 인증 대신 데이터 형식/범위를 검증합니다.
+// 교사 화면은 앱의 관리자 비밀번호로 보호됩니다.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: Any authenticated user (including anonymous students)
-    function isAuthenticated() {
-      return request.auth != null;
+    function validCode(code) {
+      return code.matches('^[A-Z0-9]{5}$');
     }
 
-    // Helper: Check if user is a teacher (authenticated via email/password or email matches)
-    function isTeacher() {
-      return request.auth != null && (
-        request.auth.token.firebase.sign_in_provider == 'password' ||
-        request.auth.token.email != null
-      );
+    function validScore(d) {
+      return !('score' in d) || (d.score is number && d.score >= 0 && d.score <= 20000);
     }
 
-    // Classrooms collection
-    // Document ID is the 5-character classCode (e.g., 'FAITH')
+    function validSolved(d) {
+      return !('solvedCount' in d) || (d.solvedCount is number && d.solvedCount >= 0 && d.solvedCount <= 36);
+    }
+
+    function validName(d) {
+      return !('studentName' in d) || (d.studentName is string && d.studentName.size() > 0 && d.studentName.size() <= 30);
+    }
+
+    // /classrooms/{classCode}  (문서 ID = 5자리 수업 코드)
     match /classrooms/{classCode} {
-      // Any student can read class metadata (to check if valid or closed)
-      allow read: if isAuthenticated();
-      
-      // Teachers can create and manage their classrooms
-      allow create, update, delete: if isTeacher();
+      allow read: if true;
+      allow create, update: if validCode(classCode)
+        && request.resource.data.code == classCode
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 80;
+      allow delete: if true;
 
-      // Student sessions subcollection inside classroom
-      // /classrooms/{classCode}/students/{studentId}
+      // 학생 실시간 현황 /classrooms/{classCode}/students/{studentId}
       match /students/{studentId} {
-        // Students in the class and teachers can read leaderboard and stats
-        allow read: if isAuthenticated();
+        allow read: if true;
+        allow create, update: if studentId.size() <= 80
+          && validScore(request.resource.data)
+          && validSolved(request.resource.data)
+          && validName(request.resource.data);
+        allow delete: if true;
+      }
 
-        // Student can create or update their own record with sane limits
-        allow create, update: if isAuthenticated() && (
-          // Own session or teacher
-          (request.auth.uid == studentId || isTeacher()) &&
-          // Validate score and quest boundaries
-          (
-            !('score' in request.resource.data) ||
-            (request.resource.data.score is number &&
-             request.resource.data.score >= 0 &&
-             request.resource.data.score <= 20000)
-          ) &&
-          (
-            !('solvedCount' in request.resource.data) ||
-            (request.resource.data.solvedCount is number &&
-             request.resource.data.solvedCount >= 0 &&
-             request.resource.data.solvedCount <= 36)
-          )
-        );
-
-        // Teacher can delete/reset student records
-        allow delete: if isTeacher();
+      // 게임 결과 기록(히스토리) /classrooms/{classCode}/results/{resultId}
+      // 한 번 기록되면 수정 불가 (교사만 화면에서 전체 삭제)
+      match /results/{resultId} {
+        allow read: if true;
+        allow create: if resultId.size() <= 120
+          && request.resource.data.studentName is string
+          && request.resource.data.finishedAt is number
+          && validScore(request.resource.data)
+          && validSolved(request.resource.data)
+          && validName(request.resource.data);
+        allow update: if false;
+        allow delete: if true;
       }
     }
   }

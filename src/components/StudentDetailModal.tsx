@@ -95,7 +95,7 @@ ${wrongVerses.length > 0 ? `■ 보충 권장 구절:\n${wrongVerses.map(v => ` 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-sm select-none">
-      <div className="relative w-full max-w-2xl bg-[#091527] border-2 sm:border-4 border-[#8e5837] rounded-2xl sm:rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.9)] flex flex-col max-h-[92vh] overflow-hidden text-slate-100">
+      <div className="relative w-full max-w-2xl bg-[#091527] border-2 sm:border-4 border-[#8e5837] rounded-2xl sm:rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.9)] flex flex-col max-h-[92dvh] overflow-hidden text-slate-100">
         
         {/* Top Header */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-800 bg-[#06101e]">

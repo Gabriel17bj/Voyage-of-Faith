@@ -47,6 +47,17 @@ interface StudentSession {
 const DATA_DIR = path.resolve(__dirname, '.data');
 const CLASSROOMS_FILE = path.join(DATA_DIR, 'classrooms.json');
 const STUDENTS_FILE = path.join(DATA_DIR, 'students.json');
+const RESULTS_FILE = path.join(DATA_DIR, 'results.json');
+
+interface GameResult {
+  id: string;
+  classCode: string;
+  studentId: string;
+  studentName: string;
+  score: number;
+  finishedAt: number;
+  [key: string]: unknown;
+}
 
 try {
   if (!fs.existsSync(DATA_DIR)) {
@@ -180,6 +191,7 @@ const DEFAULT_FAITH_STUDENTS: StudentSession[] = [
 
 let classrooms: Map<string, Classroom> = new Map();
 let students: Map<string, Map<string, StudentSession>> = new Map(); // classCode -> (studentId -> StudentSession)
+let results: Map<string, GameResult[]> = new Map(); // classCode -> 게임 결과 기록
 
 // Load from disk if exists
 try {
@@ -215,6 +227,19 @@ try {
   console.warn('[Server] Could not read students from disk:', e);
 }
 
+try {
+  if (fs.existsSync(RESULTS_FILE)) {
+    const raw = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf-8'));
+    if (typeof raw === 'object' && raw !== null) {
+      Object.keys(raw).forEach((code) => {
+        if (Array.isArray(raw[code])) results.set(code.toUpperCase(), raw[code]);
+      });
+    }
+  }
+} catch (e) {
+  console.warn('[Server] Could not read results from disk:', e);
+}
+
 if (!students.has('FAITH') || students.get('FAITH')!.size === 0) {
   const faithMap = new Map<string, StudentSession>();
   DEFAULT_FAITH_STUDENTS.forEach((st) => faithMap.set(st.id, st));
@@ -232,6 +257,12 @@ function persistData() {
       stObj[code] = Array.from(map.values());
     });
     fs.writeFileSync(STUDENTS_FILE, JSON.stringify(stObj, null, 2), 'utf-8');
+
+    const resObj: { [code: string]: GameResult[] } = {};
+    results.forEach((list, code) => {
+      resObj[code] = list;
+    });
+    fs.writeFileSync(RESULTS_FILE, JSON.stringify(resObj, null, 2), 'utf-8');
   } catch (e) {
     console.warn('[Server] Failed to persist data to disk:', e);
   }
@@ -285,7 +316,7 @@ function getStudentsForClass(classCode: string): StudentSession[] {
   return Array.from(map.values())
     .map((st) => ({
       ...st,
-      isOnline: now - (st.lastActiveAt || 0) < 90 * 1000,
+      isOnline: st.isOnline !== false && now - (st.lastActiveAt || 0) < 75 * 1000,
     }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -297,6 +328,11 @@ function getStudentsForClass(classCode: string): StudentSession[] {
 // ============================================================================
 // API ROUTES
 // ============================================================================
+
+// 0. Health check (클라이언트가 서버 모드 사용 여부를 판단)
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, mode: 'server' });
+});
 
 // 1. Get all classrooms
 app.get('/api/classrooms', (_req, res) => {
@@ -357,17 +393,12 @@ app.post('/api/classrooms/:code/join', (req, res) => {
     return res.status(400).json({ success: false, error: '수업 코드가 필요합니다.' });
   }
 
-  // Auto create class if not exists yet so student is never blocked
+  // 오타 코드로 빈 수업이 생기지 않도록, 교사가 만든 수업에만 입장 가능
   if (!classrooms.has(cleanCode)) {
-    const autoClass: Classroom = {
-      code: cleanCode,
-      title: `${cleanCode} 성경탐험대`,
-      teacherEmail: 'teacher@promise.land',
-      createdAt: Date.now(),
-      isClosed: false,
-    };
-    classrooms.set(cleanCode, autoClass);
-    broadcastToClass('*', { type: 'CLASSROOM_CREATED', classroom: autoClass });
+    return res.status(404).json({
+      success: false,
+      error: `수업 코드 [${cleanCode}]를 찾을 수 없습니다. 선생님이 알려준 코드를 다시 확인하세요.`,
+    });
   }
 
   const currentClass = classrooms.get(cleanCode)!;
@@ -470,6 +501,47 @@ app.post('/api/classrooms/:code/progress', (req, res) => {
   res.json({ success: true, session: updated });
 });
 
+// 5-1. Student left the app (navigator.sendBeacon)
+app.post('/api/classrooms/:code/offline', (req, res) => {
+  const cleanCode = req.params.code.trim().toUpperCase();
+  const { studentId } = req.body || {};
+  const classMap = students.get(cleanCode);
+  if (classMap && studentId && classMap.has(studentId)) {
+    classMap.get(studentId)!.isOnline = false;
+    persistData();
+    broadcastToClass(cleanCode, { type: 'STUDENT_OFFLINE', studentId, students: getStudentsForClass(cleanCode) });
+  }
+  res.json({ success: true });
+});
+
+// 5-2. Game results history (완주/중도 종료 기록)
+app.get('/api/classrooms/:code/results', (req, res) => {
+  const cleanCode = req.params.code.trim().toUpperCase();
+  res.json({ success: true, results: results.get(cleanCode) || [] });
+});
+
+app.post('/api/classrooms/:code/results', (req, res) => {
+  const cleanCode = req.params.code.trim().toUpperCase();
+  const record = req.body as GameResult;
+  if (!record || !record.id || !record.studentName) {
+    return res.status(400).json({ success: false, error: '기록 정보가 올바르지 않습니다.' });
+  }
+  const list = results.get(cleanCode) || [];
+  if (!list.some((r) => r.id === record.id)) {
+    list.unshift({ ...record, classCode: cleanCode });
+    results.set(cleanCode, list.slice(0, 5000));
+    persistData();
+  }
+  res.json({ success: true });
+});
+
+app.delete('/api/classrooms/:code/results', (req, res) => {
+  const cleanCode = req.params.code.trim().toUpperCase();
+  results.delete(cleanCode);
+  persistData();
+  res.json({ success: true });
+});
+
 // 6. Heartbeat
 app.post('/api/classrooms/:code/heartbeat', (req, res) => {
   const cleanCode = req.params.code.trim().toUpperCase();
@@ -546,6 +618,7 @@ app.delete('/api/classrooms/:code', (req, res) => {
   const cleanCode = req.params.code.trim().toUpperCase();
   classrooms.delete(cleanCode);
   students.delete(cleanCode);
+  results.delete(cleanCode);
   persistData();
   broadcastToClass('*', { type: 'CLASSROOM_DELETED', classCode: cleanCode });
   res.json({ success: true });
