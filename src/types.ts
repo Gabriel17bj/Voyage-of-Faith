@@ -99,6 +99,28 @@ export interface StudentSession {
   completedAt?: number;
 }
 
+export type GameResultReason = 'completed' | 'quit';
+
+/** 수업 내 학생 1회 게임 결과 기록 (영구 보관용 히스토리) */
+export interface GameResult {
+  id: string;
+  classCode: string;
+  studentId: string;
+  studentName: string;
+  famId: FamId;
+  characterId?: string;
+  score: number;
+  solvedCount: number;
+  totalStars: number;
+  hintsUsed: number;
+  wrongAnswersCount: number;
+  elapsedTimeMs: number;
+  isCompleted: boolean;
+  reason: GameResultReason;
+  startedAt?: number;
+  finishedAt: number;
+}
+
 export interface Classroom {
   code: string; // 5-letter code (e.g., 'FAITH')
   title: string;

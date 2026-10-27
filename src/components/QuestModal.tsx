@@ -388,7 +388,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   }, [quest, language]);
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-[#040914]/90 backdrop-blur-sm select-none overflow-hidden touch-manipulation">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-[#040914]/90 backdrop-blur-sm select-none overflow-hidden touch-manipulation">
       
       {/* Background Sea Texture */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -445,10 +445,10 @@ export const QuestModal: React.FC<QuestModalProps> = ({
         {/* ========================================================= */}
         {/* 2. MAIN SCROLLABLE CONTENT BODY */}
         {/* ========================================================= */}
-        <div className="relative z-10 p-3.5 sm:p-5 flex flex-col gap-3 overflow-y-auto max-h-[calc(96dvh-130px)]">
+        <div className="relative z-10 p-3.5 sm:p-5 flex flex-col gap-3 overflow-y-auto overscroll-contain flex-1 min-h-0">
           
           {/* Objective & Mascot Dialogue Banner */}
-          <div className="rounded-2xl bg-gradient-to-r from-sky-950/80 via-slate-900 to-sky-950/80 p-3.5 border border-sky-600/30 flex items-center gap-3 shadow-inner">
+          <div className="short-hide rounded-2xl bg-gradient-to-r from-sky-950/80 via-slate-900 to-sky-950/80 p-3.5 border border-sky-600/30 flex items-center gap-3 shadow-inner">
             <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl shrink-0 shadow">
               {fam.emoji}
             </div>

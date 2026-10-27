@@ -85,12 +85,12 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const currentPet = MASCOT_PETS.find((p) => p.id === selectedPetId) || MASCOT_PETS[0];
 
   return (
-    <div className="relative w-full max-w-[1200px] max-h-[96dvh] aspect-[16/9] bg-[#071322] rounded-2xl sm:rounded-3xl border-2 sm:border-4 border-[#8e5837] shadow-2xl overflow-hidden flex flex-col justify-between select-none">
+    <div className="start-screen relative w-full h-full max-w-[1200px] lg:h-auto lg:max-h-full lg:aspect-[16/9] bg-[#071322] rounded-none lg:rounded-3xl border-0 lg:border-4 border-[#8e5837] shadow-2xl overflow-y-auto overflow-x-hidden lg:overflow-hidden overscroll-contain flex flex-col justify-between gap-2 select-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       
       {/* ========================================================= */}
       {/* GENTLE SEA VOYAGE BACKGROUND (Matching [바다배경.png]) */}
       {/* ========================================================= */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div className="fixed lg:absolute inset-0 overflow-hidden pointer-events-none">
         {/* Soft watercolor sea background image */}
         <img
           src={ASSET_IMAGES.seaBackground}
@@ -116,13 +116,13 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       {/* ========================================================= */}
       {/* HEADER LOGO SECTION */}
       {/* ========================================================= */}
-      <div className="relative z-10 pt-2 sm:pt-4 flex flex-col items-center text-center px-4">
+      <div className="relative z-10 pt-12 sm:pt-4 flex flex-col items-center text-center px-4">
         
         {/* Top Arc Tag: "암송아지" */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#0a2742]/85 border border-sky-400/50 shadow-md backdrop-blur-sm"
+          className="start-hide-short flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#0a2742]/85 border border-sky-400/50 shadow-md backdrop-blur-sm"
         >
           <Sparkles className="w-3 h-3 text-amber-300" />
           <span className="text-xs sm:text-sm font-black text-amber-200 tracking-wider">
@@ -138,7 +138,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           transition={{ duration: 0.5, type: 'spring' }}
           className="relative mt-1 flex items-center justify-center"
         >
-          <h1 className="text-2xl sm:text-4xl md:text-5xl font-black tracking-tight text-[#ffea79] rpg-title-glow select-none drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)] flex items-center gap-2">
+          <h1 className="text-2xl sm:text-4xl md:text-5xl font-black tracking-tight text-[#ffea79] rpg-title-glow select-none drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)] flex flex-wrap items-center justify-center gap-x-2 gap-y-0 leading-tight">
             <span className="text-white drop-shadow-[0_2px_4px_#061a2e]">PROMISE LAND</span>
             <span className="text-amber-300 drop-shadow-[0_2px_4px_#061a2e]">:</span>
             <span className="text-emerald-300 font-bold drop-shadow-[0_2px_4px_#061a2e]">
@@ -157,7 +157,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         </motion.div>
 
         {/* Subtitle: "예수님과 함께하는 믿음의 항해" */}
-        <p className="text-xs sm:text-base md:text-lg text-amber-100 font-bold tracking-wide drop-shadow mt-1">
+        <p className="start-hide-short text-xs sm:text-base md:text-lg text-amber-100 font-bold tracking-wide drop-shadow mt-1">
           {language === 'ko' ? '예수님과 함께하는 믿음의 항해' : 'Voyage of Faith with Jesus'}
         </p>
 
@@ -180,7 +180,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       {/* ========================================================= */}
       {/* CENTER STAGE: 5 HEROES -> CAMPFIRE -> 4 ANIMAL MASCOTS */}
       {/* ========================================================= */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center py-1 px-2">
+      <div className="relative z-10 flex-1 shrink-0 flex flex-col items-center justify-center py-1 px-2">
         
         {/* ROW 1: 5 CHARACTERS (Left to Right: Paul, Esther, JESUS [Center], David, Joseph) */}
         <div className="relative flex items-end justify-center gap-1.5 sm:gap-3 md:gap-5 mb-1.5 sm:mb-2">
@@ -267,7 +267,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         </div>
 
         {/* ROW 2: CAMPFIRE & 4 ANIMAL MASCOTS (Placed clearly below characters without obscuring names) */}
-        <div className="relative flex items-center justify-center gap-2 sm:gap-3 md:gap-4 mt-0.5 sm:mt-1">
+        <div className="start-hide-short relative flex items-center justify-center gap-2 sm:gap-3 md:gap-4 mt-0.5 sm:mt-1">
           
           {/* Mascot 1: Lamb Shalom (어린 양 샬롬) */}
           <div 
@@ -368,7 +368,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       {/* ========================================================= */}
       {/* HORIZONTAL RPG WOODEN BOTTOM MENU BAR (Alongside Credits) */}
       {/* ========================================================= */}
-      <div className="relative z-20 pb-3 sm:pb-4 px-2 sm:px-4 w-full flex items-center justify-center gap-1.5 sm:gap-2.5 flex-wrap">
+      <div className="relative z-20 pb-4 px-3 sm:px-4 w-full grid grid-cols-2 sm:flex items-center justify-center gap-2 sm:gap-2.5 sm:flex-wrap shrink-0">
         
         {/* Resume Game Button (If saved progress exists) */}
         {hasSavedProgress && onResumeGame && (
@@ -377,7 +377,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               sounds.playCorrect();
               onResumeGame();
             }}
-            className="rpg-btn-wood py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-emerald-400/90 bg-gradient-to-b from-[#1a5c32] to-[#0c331a] animate-pulse"
+            className="col-span-2 rpg-btn-wood py-3 lg:py-2 px-3 sm:px-4 rounded-xl font-black text-sm lg:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-emerald-400/90 bg-gradient-to-b from-[#1a5c32] to-[#0c331a] animate-pulse"
           >
             <RotateCcw className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
             <span className="text-emerald-100">
@@ -389,7 +389,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         {/* Game Start Button (Primary highlighted) */}
         <button
           onClick={handleOpenSetup}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-amber-300/80 bg-gradient-to-b from-[#804218] to-[#4a240c]"
+          className="rpg-btn-wood py-3 lg:py-2 px-3 sm:px-4 rounded-xl font-black text-sm lg:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-amber-300/80 bg-gradient-to-b from-[#804218] to-[#4a240c]"
         >
           <Play className="w-3.5 h-3.5 fill-amber-300 text-amber-300 shrink-0" />
           <span className="text-amber-100">{hasSavedProgress ? '새 항해 시작' : '게임시작'}</span>
@@ -401,7 +401,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             sounds.playTap();
             setShowProfileModal(true);
           }}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg sm:rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-emerald-400/90 bg-gradient-to-b from-[#1b5e35] to-[#0c351c] text-emerald-100 hover:brightness-110"
+          className="rpg-btn-wood py-3 lg:py-2 px-3 sm:px-4 rounded-xl font-black text-sm lg:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95 border-emerald-400/90 bg-gradient-to-b from-[#1b5e35] to-[#0c351c] text-emerald-100 hover:brightness-110"
           title="선생님이 주신 5자리 수업 코드를 입력하여 실시간 기록에 참여합니다"
         >
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
@@ -415,7 +415,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             sounds.playTap();
             onOpenSettings();
           }}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95"
+          className="rpg-btn-wood py-2.5 lg:py-2 px-2.5 sm:px-3 rounded-xl font-bold text-xs lg:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95"
         >
           <Settings className="w-3 h-3 text-amber-200 shrink-0" />
           <span>환경설정</span>
@@ -427,7 +427,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             sounds.playTap();
             onOpenLeaderboard();
           }}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95"
+          className="rpg-btn-wood py-2.5 lg:py-2 px-2.5 sm:px-3 rounded-xl font-bold text-xs lg:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95"
         >
           <Trophy className="w-3 h-3 text-amber-300 shrink-0" />
           <span>믿음의 이정표</span>
@@ -439,7 +439,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             sounds.playTap();
             onOpenRules();
           }}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95"
+          className="rpg-btn-wood py-2.5 lg:py-2 px-2.5 sm:px-3 rounded-xl font-bold text-xs lg:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-95 hover:opacity-100 shadow active:scale-95"
         >
           <BookOpen className="w-3 h-3 text-blue-200 shrink-0" />
           <span>항해 규칙</span>
@@ -451,7 +451,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             sounds.playTap();
             onOpenCredits();
           }}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-90 hover:opacity-100 shadow active:scale-95"
+          className="rpg-btn-wood py-2.5 lg:py-2 px-2.5 sm:px-3 rounded-xl font-bold text-xs lg:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-90 hover:opacity-100 shadow active:scale-95"
         >
           <Info className="w-3 h-3 text-amber-200 shrink-0" />
           <span>크레딧</span>
@@ -463,7 +463,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             sounds.playTap();
             window.location.hash = '#/teacher';
           }}
-          className="rpg-btn-wood py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-bold text-[10px] sm:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-90 hover:opacity-100 shadow active:scale-95 text-amber-300 border-amber-500/60"
+          className="rpg-btn-wood py-2.5 lg:py-2 px-2.5 sm:px-3 rounded-xl font-bold text-xs lg:text-[11px] flex items-center justify-center gap-1 cursor-pointer opacity-90 hover:opacity-100 shadow active:scale-95 text-amber-300 border-amber-500/60 col-span-2 sm:col-span-1"
           title="교사 대시보드 (수업 관리 및 실시간 순위)"
         >
           <ShieldCheck className="w-3 h-3 text-amber-300 shrink-0" />
@@ -471,7 +471,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         </button>
 
         {/* Developer Credit Note */}
-        <div className="w-full text-center -mt-0.5 sm:mt-0 flex items-center justify-center gap-2">
+        <div className="col-span-2 w-full text-center -mt-0.5 sm:mt-0 flex items-center justify-center gap-2">
           <span className="text-[9px] sm:text-[10px] text-sky-200/60 font-medium tracking-wide">
             Developed by <strong className="text-amber-200/90 font-bold">Gabriel Byeongje Jeon</strong>
           </span>
@@ -489,7 +489,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="relative w-full max-w-lg bg-[#0a1526] border-2 sm:border-4 border-[#8e5837] rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col gap-3 text-slate-100 max-h-[92vh] overflow-y-auto"
+              className="relative w-full max-w-lg bg-[#0a1526] border-2 sm:border-4 border-[#8e5837] rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col gap-3 text-slate-100 max-h-[92dvh] overflow-y-auto overscroll-contain"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
@@ -558,7 +558,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                       onChange={(e) => setClassCode(e.target.value.toUpperCase().slice(0, 5))}
                       placeholder="예: FAITH"
                       maxLength={5}
-                      className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-sky-400/80 text-amber-300 font-mono text-sm font-black tracking-widest uppercase focus:ring-2 focus:ring-amber-400 focus:outline-none placeholder:text-slate-600 placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-xs"
+                      className="flex-1 min-w-0 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-sky-400/80 text-amber-300 font-mono text-sm font-black tracking-widest uppercase focus:ring-2 focus:ring-amber-400 focus:outline-none placeholder:text-slate-600 placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-xs"
                     />
                     <button
                       type="button"

@@ -14,7 +14,7 @@ export const CreditsModal: React.FC<CreditsModalProps> = ({ onClose, language })
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/95 backdrop-blur-md select-none">
-      <div className="relative w-full max-w-md bg-slate-900 border-2 sm:border-4 border-[#8e5837] rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 max-h-[90vh] overflow-y-auto">
+      <div className="relative w-full max-w-md bg-slate-900 border-2 sm:border-4 border-[#8e5837] rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 max-h-[90dvh] overflow-y-auto">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">

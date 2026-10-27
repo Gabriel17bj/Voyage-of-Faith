@@ -19,10 +19,15 @@ import {
   getLocalTeacherSession,
   clearLocalTeacherSession,
   addSimulatedStudent,
+  subscribeClassResults,
+  exportResultsToCsv,
+  clearClassResults,
+  detectSyncMode,
+  SyncMode,
   DEFAULT_DEMO_CLASSROOMS,
   DEFAULT_DEMO_STUDENTS,
 } from '../utils/cloud';
-import { Classroom, StudentSession } from '../types';
+import { Classroom, StudentSession, GameResult } from '../types';
 import { VERSE_QUESTS, FAM_LIST } from '../data/verses';
 import { HERO_CHARACTERS } from '../data/characters';
 import { getRankTier } from '../utils/score';
@@ -77,7 +82,13 @@ export const TeacherDashboard: React.FC = () => {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [selectedClassCode, setSelectedClassCode] = useState<string>('FAITH');
   const [students, setStudents] = useState<StudentSession[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard' | 'verses' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard' | 'results' | 'verses' | 'settings'>('overview');
+  const [results, setResults] = useState<GameResult[]>([]);
+  const [syncMode, setSyncMode] = useState<SyncMode | null>(null);
+
+  useEffect(() => {
+    detectSyncMode().then(setSyncMode);
+  }, []);
 
   // Student Detail Modal
   const [selectedStudentForDetail, setSelectedStudentForDetail] = useState<StudentSession | null>(null);
@@ -192,6 +203,16 @@ export const TeacherDashboard: React.FC = () => {
     return () => unsub();
   }, [selectedClassCode, isDemoMode]);
 
+  // 5. Game results history listener for selected class
+  useEffect(() => {
+    if (!selectedClassCode || isDemoMode) {
+      setResults([]);
+      return;
+    }
+    const unsub = subscribeClassResults(selectedClassCode, setResults);
+    return () => unsub();
+  }, [selectedClassCode, isDemoMode]);
+
   // Handle Demo Mode Enter
   const handleEnterDemoMode = () => {
     sounds.playCorrect();
@@ -266,7 +287,7 @@ export const TeacherDashboard: React.FC = () => {
   const handleAddSimulatedStudent = () => {
     sounds.playCorrect();
     if (!selectedClassCode) return;
-    const newStudent = addSimulatedStudent(selectedClassCode);
+    const newStudent = addSimulatedStudent(selectedClassCode, students);
     if (isDemoMode) {
       setStudents((prev) => [newStudent, ...prev]);
     }
@@ -372,7 +393,7 @@ export const TeacherDashboard: React.FC = () => {
   // Filtered students by search
   const filteredStudents = useMemo(() => {
     if (!searchQuery.trim()) return students;
-    return students.filter((s) => s.studentName.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+    return students.filter((s) => (s.studentName || "").toLowerCase().includes(searchQuery.trim().toLowerCase()));
   }, [students, searchQuery]);
 
   // Time format helper
@@ -628,7 +649,7 @@ export const TeacherDashboard: React.FC = () => {
     <div className="min-h-screen bg-[#071322] text-slate-100 flex flex-col">
       {/* Real-time Student Arrival Alert Toast */}
       {newStudentToast && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-900/95 to-slate-900/95 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-md flex items-center gap-3 animate-bounce">
+        <div className="fixed top-4 right-3 left-3 sm:left-auto sm:right-4 z-50 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-900/95 to-slate-900/95 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-md flex items-center gap-3 animate-bounce">
           <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping shrink-0" />
           <div className="text-xs">
             <span className="font-black text-emerald-300">🎉 새 학생 실시간 접속!</span>
@@ -663,8 +684,21 @@ export const TeacherDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Sync engine status banner */}
+      {!isDemoMode && syncMode === 'local' && (
+        <div className="bg-red-950/80 border-b border-red-500/40 px-4 py-2 text-[11px] sm:text-xs text-red-200 leading-relaxed">
+          <strong>⚠️ 로컬 모드:</strong> Firebase 설정(VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID)이 없어
+          이 브라우저 안에서만 기록됩니다. 다른 기기의 학생은 보이지 않습니다. README의 배포 안내를 확인해 주세요.
+        </div>
+      )}
+      {!isDemoMode && syncMode === 'server' && (
+        <div className="bg-blue-950/70 border-b border-blue-500/30 px-4 py-1.5 text-[11px] text-blue-200">
+          🖥️ 서버 모드(AI Studio 미리보기/자체 서버): 서버가 재시작되면 기록이 초기화될 수 있습니다. 영구 기록은 Firebase 연결을 권장합니다.
+        </div>
+      )}
+
       {/* Top Navigation Bar */}
-      <header className="bg-[#0b1c32] border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-40 flex-wrap gap-2">
+      <header className="bg-[#0b1c32] border-b border-slate-800 px-4 sm:px-6 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center justify-between sticky top-0 z-40 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
@@ -688,7 +722,7 @@ export const TeacherDashboard: React.FC = () => {
                 </h1>
                 <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-bold border border-emerald-400/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  실시간 동기화
+                  {syncMode === 'firebase' ? '클라우드 실시간' : syncMode === 'server' ? '서버 실시간' : '실시간 동기화'}
                 </span>
               </div>
               <span className="text-[10px] text-slate-400">{currentUser.email}</span>
@@ -788,7 +822,7 @@ export const TeacherDashboard: React.FC = () => {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-5">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-4 sm:gap-5">
         {/* If no classrooms created yet */}
         {classrooms.length === 0 ? (
           <div className="bg-[#0b1c32] border-2 border-dashed border-slate-700 rounded-3xl p-8 text-center flex flex-col items-center gap-3 my-auto">
@@ -974,8 +1008,8 @@ export const TeacherDashboard: React.FC = () => {
             )}
 
             {/* Tab Navigation */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <div className="flex items-center gap-1">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar -mx-1 px-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
                 <button
                   onClick={() => {
                     sounds.playTap();
@@ -1004,6 +1038,21 @@ export const TeacherDashboard: React.FC = () => {
                 >
                   <Trophy className="w-3.5 h-3.5" />
                   <span>종합 순위표</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    sounds.playTap();
+                    setActiveTab('results');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'results'
+                      ? 'bg-amber-500 text-slate-950 font-black shadow'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>게임 기록 ({results.length})</span>
                 </button>
 
                 <button
@@ -1043,7 +1092,7 @@ export const TeacherDashboard: React.FC = () => {
                   exportStudentsToCsv(students, selectedClassCode);
                 }}
                 disabled={students.length === 0}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="hidden sm:flex shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>CSV 저장</span>
@@ -1327,6 +1376,101 @@ export const TeacherDashboard: React.FC = () => {
             )}
 
             {/* TAB 4: CLASSROOM SETTINGS */}
+            {/* TAB: GAME RESULTS HISTORY (영구 기록) */}
+            {activeTab === 'results' && (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    학생이 게임을 <strong className="text-emerald-300">완주</strong>하거나 설정에서
+                    <strong className="text-amber-300"> 게임 초기화(중도 종료)</strong>를 하면 결과가 자동으로 기록됩니다.
+                    학생 현황을 초기화해도 이 기록은 남습니다.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        sounds.playTap();
+                        exportResultsToCsv(results, selectedClassCode);
+                      }}
+                      disabled={results.length === 0}
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>기록 CSV 저장</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm(`[${selectedClassCode}] 수업의 게임 기록 ${results.length}건을 모두 삭제할까요? 되돌릴 수 없습니다.`)) return;
+                        sounds.playTap();
+                        await clearClassResults(selectedClassCode);
+                      }}
+                      disabled={results.length === 0}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-900 text-slate-300 text-xs font-bold border border-slate-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>기록 삭제</span>
+                    </button>
+                  </div>
+                </div>
+
+                {results.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 text-xs bg-[#0c1e36] rounded-2xl border border-slate-800">
+                    <BookOpen className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                    아직 저장된 게임 기록이 없습니다.
+                  </div>
+                ) : (
+                  <div className="bg-[#0c1e36] border border-slate-800 rounded-2xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[640px]">
+                        <thead className="bg-slate-900/80 text-slate-400">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-bold">기록 시각</th>
+                            <th className="text-left px-3 py-2 font-bold">학생</th>
+                            <th className="text-center px-3 py-2 font-bold">결과</th>
+                            <th className="text-right px-3 py-2 font-bold">점수</th>
+                            <th className="text-center px-3 py-2 font-bold">말씀</th>
+                            <th className="text-center px-3 py-2 font-bold">별</th>
+                            <th className="text-center px-3 py-2 font-bold">소요 시간</th>
+                            <th className="text-center px-3 py-2 font-bold">힌트/오답</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {results.map((r) => (
+                            <tr key={r.id} className="border-t border-slate-800/80">
+                              <td className="px-3 py-2 text-slate-400 whitespace-nowrap">
+                                {new Date(r.finishedAt).toLocaleString('ko-KR', {
+                                  month: 'numeric',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </td>
+                              <td className="px-3 py-2 font-bold text-white whitespace-nowrap">{r.studentName}</td>
+                              <td className="px-3 py-2 text-center">
+                                {r.isCompleted ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">완주</span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-bold">중도 종료</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black text-amber-300">
+                                {(r.score || 0).toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-300">{r.solvedCount}/36</td>
+                              <td className="px-3 py-2 text-center text-slate-300">⭐ {r.totalStars}</td>
+                              <td className="px-3 py-2 text-center text-slate-300 whitespace-nowrap">{formatTime(r.elapsedTimeMs)}</td>
+                              <td className="px-3 py-2 text-center text-slate-400">
+                                {r.hintsUsed} / {r.wrongAnswersCount}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className="bg-[#0c1e36] border border-slate-800 rounded-2xl p-6 flex flex-col gap-5 max-w-2xl">
                 <div>

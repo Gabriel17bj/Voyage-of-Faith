@@ -30,7 +30,13 @@ import { TeacherDashboard } from './components/TeacherDashboard';
 import { BgmPlayer } from './components/BgmPlayer';
 import { sounds } from './utils/audio';
 import { calculateScore, getRankTier } from './utils/score';
-import { joinClassroom, updateStudentProgress, sendHeartbeat } from './utils/cloud';
+import {
+  joinClassroom,
+  updateStudentProgress,
+  sendHeartbeat,
+  markStudentOffline,
+  recordGameResult,
+} from './utils/cloud';
 import { 
   loadSavedProgress, 
   saveSavedProgress, 
@@ -114,6 +120,17 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isClassConnected, setIsClassConnected] = useState<boolean>(false);
   const [classroomToast, setClassroomToast] = useState<{ code: string; name: string } | null>(null);
+  const [classroomError, setClassroomError] = useState<string | null>(null);
+  const gameStartedAtRef = useRef<number>(Date.now());
+  const resultRecordedRef = useRef<boolean>(false);
+
+  // Auto-dismiss classroom error after 6s
+  useEffect(() => {
+    if (classroomError) {
+      const timer = window.setTimeout(() => setClassroomError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [classroomError]);
 
   // Auto-dismiss classroom toast after 5s
   useEffect(() => {
@@ -225,7 +242,7 @@ export default function App() {
       startTimeRef.current = Date.now() - elapsedTimeMs;
       timerRef.current = window.setInterval(() => {
         setElapsedTimeMs(Date.now() - startTimeRef.current);
-      }, 30);
+      }, 100);
     } else {
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -240,20 +257,65 @@ export default function App() {
     };
   }, [gameState]);
 
-  // 30-Second Heartbeat to Cloud if in class
+  // 30-Second Heartbeat to Cloud if in class (+ 앱 전환/종료 시 오프라인 표시)
   useEffect(() => {
-    if (gameState !== 'playing' || !playerProfile.classCode) return;
+    if (gameState === 'start' || !playerProfile.classCode || !isClassConnected) return;
+    const code = playerProfile.classCode;
 
     const interval = window.setInterval(() => {
-      sendHeartbeat(playerProfile.classCode!);
+      if (document.visibilityState === 'visible') sendHeartbeat(code);
     }, 30000);
 
-    return () => clearInterval(interval);
-  }, [gameState, playerProfile.classCode]);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        sendHeartbeat(code);
+      } else {
+        markStudentOffline(code);
+      }
+    };
+    const handlePageHide = () => markStudentOffline(code);
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [gameState, playerProfile.classCode, isClassConnected]);
+
+  // 게임 결과를 수업 기록(히스토리)에 영구 저장
+  const saveResultToClass = (isCompleted: boolean) => {
+    if (!playerProfile.classCode || !isClassConnected || resultRecordedRef.current) return;
+    if (!isCompleted && solvedQuestIds.length === 0) return;
+    resultRecordedRef.current = true;
+    recordGameResult(playerProfile.classCode, {
+      studentName: playerProfile.name,
+      famId: playerProfile.fam,
+      characterId: playerProfile.characterId,
+      score: currentScore,
+      solvedCount: solvedQuestIds.length,
+      totalStars,
+      hintsUsed: totalHintsUsed,
+      wrongAnswersCount,
+      elapsedTimeMs,
+      isCompleted,
+      reason: isCompleted ? 'completed' : 'quit',
+      startedAt: gameStartedAtRef.current,
+    });
+  };
+
+  // 완주 시점의 최신 상태로 결과 기록
+  useEffect(() => {
+    if (gameState === 'completed') {
+      saveResultToClass(true);
+    }
+  }, [gameState]);
 
   // Debounced Cloud Sync on progress updates
   useEffect(() => {
-    if (gameState === 'start' || !playerProfile.classCode) return;
+    if (gameState === 'start' || !playerProfile.classCode || !isClassConnected) return;
 
     const timeout = setTimeout(() => {
       updateStudentProgress(playerProfile.classCode!, {
@@ -274,6 +336,7 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [
     playerProfile.classCode,
+    isClassConnected,
     gameState,
     currentScore,
     solvedQuestIds.length,
@@ -313,26 +376,33 @@ export default function App() {
     setVerseReviewHistory({});
     setCurrentSectorId(1);
     setActiveModalQuestId(null);
+    setIsClassConnected(false);
+    gameStartedAtRef.current = Date.now();
+    resultRecordedRef.current = false;
     setGameState('playing');
 
     // If student entered a classCode, register into classroom immediately
     if (profile.classCode) {
-      try {
-        const res = await joinClassroom(profile.classCode, profile, 0);
-        if (res.success) {
-          setIsClassConnected(true);
-          setClassroomToast({
-            code: profile.classCode,
-            name: profile.name,
-          });
-        } else if (res.error) {
-          console.warn('[Classroom Join Note]', res.error);
-        }
-      } catch (err) {
-        console.warn('[Classroom Join Error]', err);
+      await connectToClass(profile, 0);
+    }
+  };
+
+  const connectToClass = async (profile: PlayerProfile, initialScore: number) => {
+    if (!profile.classCode) return;
+    try {
+      const res = await joinClassroom(profile.classCode, profile, initialScore);
+      if (res.success) {
+        setIsClassConnected(true);
+        setClassroomError(null);
+        setClassroomToast({ code: profile.classCode, name: profile.name });
+      } else {
+        setIsClassConnected(false);
+        setClassroomError(res.error || '수업에 연결하지 못했습니다.');
       }
-    } else {
+    } catch (err) {
+      console.warn('[Classroom Join Error]', err);
       setIsClassConnected(false);
+      setClassroomError('수업에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.');
     }
   };
 
@@ -352,26 +422,13 @@ export default function App() {
     setCurrentSectorId(savedProgress.currentSectorId || 1);
     setVerseReviewHistory(savedProgress.verseReviewHistory || {});
     setActiveModalQuestId(null);
+    setIsClassConnected(false);
+    resultRecordedRef.current = false;
     setGameState('playing');
 
     // Re-verify classroom presence on resume
     if (savedProgress.playerProfile.classCode) {
-      try {
-        const res = await joinClassroom(
-          savedProgress.playerProfile.classCode,
-          savedProgress.playerProfile,
-          currentScore
-        );
-        if (res.success) {
-          setIsClassConnected(true);
-          setClassroomToast({
-            code: savedProgress.playerProfile.classCode,
-            name: savedProgress.playerProfile.name,
-          });
-        }
-      } catch (err) {}
-    } else {
-      setIsClassConnected(false);
+      await connectToClass(savedProgress.playerProfile, 0);
     }
   };
 
@@ -454,16 +511,7 @@ export default function App() {
       } catch {}
       return updated;
     });
-
-    // Cloud final update
-    if (playerProfile.classCode) {
-      updateStudentProgress(playerProfile.classCode, {
-        isCompleted: true,
-        completedAt: Date.now(),
-        score: currentScore,
-        solvedCount: quests.length,
-      });
-    }
+    // 수업 서버 최종 반영은 gameState 변경에 따른 동기화 effect와 결과 기록 effect가 처리
   };
 
   // Hint Deduction
@@ -511,10 +559,14 @@ export default function App() {
   const activeQuestData = quests.find((q) => q.id === activeModalQuestId);
 
   return (
-    <div className="h-[100dvh] w-screen max-h-[100dvh] bg-[#060b13] text-slate-100 flex flex-col items-center justify-center p-1 sm:p-2 select-none font-sans overflow-hidden">
+    <div className="game-viewport h-[100dvh] w-full max-h-[100dvh] bg-[#060b13] text-slate-100 flex flex-col items-center justify-center select-none font-sans overflow-hidden">
       
       {/* Global Background Music Component (YouTube ID: g0MXF-y3xos) */}
-      <div className="fixed top-2 right-2 z-40">
+      <div
+        className={`fixed z-40 ${
+          gameState === 'playing' ? 'top-0 right-0 [&_button]:hidden' : 'top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))]'
+        }`}
+      >
         <BgmPlayer
           videoId="g0MXF-y3xos"
           isMuted={isMuted}
@@ -529,7 +581,7 @@ export default function App() {
             initial={{ opacity: 0, y: -30, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -30, scale: 0.9 }}
-            className="fixed top-4 z-50 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-900/95 via-slate-900/95 to-teal-900/95 border-2 border-emerald-400 text-white shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-md flex items-center gap-3 max-w-md pointer-events-auto select-none"
+            className="fixed top-[max(1rem,env(safe-area-inset-top))] inset-x-3 mx-auto z-50 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-900/95 via-slate-900/95 to-teal-900/95 border-2 border-emerald-400 text-white shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-md flex items-center gap-3 max-w-md pointer-events-auto select-none"
           >
             <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center shrink-0">
               <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
@@ -552,41 +604,34 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Realtime Classroom Live Status Pill (Fixed Top Left during Play) */}
-      {gameState === 'playing' && playerProfile.classCode && (
-        <div className="fixed top-3 left-3 z-30 pointer-events-auto">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/85 border border-emerald-400/70 backdrop-blur-md shadow-lg text-[11px] text-slate-200">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-slate-300 font-medium">수업:</span>
-            <span className="font-mono font-black text-amber-300">[{playerProfile.classCode}]</span>
-            <span className="text-[10px] text-emerald-300 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/40">
-              실시간 기록 중
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Realtime Score HUD Badge (Fixed Left Bottom during Play) */}
-      {gameState === 'playing' && (
-        <div className="fixed bottom-3 left-3 z-30 pointer-events-none sm:pointer-events-auto transition-transform hover:scale-105">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/90 border border-amber-500/50 backdrop-blur-md shadow-2xl text-slate-100">
-            <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-xs border border-amber-400/30">
-              🏆
+      {/* Classroom connection error toast */}
+      <AnimatePresence>
+        {classroomError && (
+          <motion.div
+            initial={{ opacity: 0, y: -30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -30 }}
+            className="fixed top-[max(1rem,env(safe-area-inset-top))] inset-x-3 mx-auto z-50 max-w-md px-4 py-3 rounded-2xl bg-red-950/95 border-2 border-red-400 text-white shadow-2xl flex items-start gap-3"
+          >
+            <span className="text-lg leading-none">⚠️</span>
+            <div className="text-xs leading-snug flex-1">
+              <div className="font-black text-red-200">수업 연결 실패</div>
+              <div className="text-slate-100 mt-0.5">{classroomError}</div>
+              {gameState === 'playing' && playerProfile.classCode && (
+                <button
+                  onClick={() => connectToClass(playerProfile, currentScore)}
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-red-500 text-white font-bold text-xs active:scale-95"
+                >
+                  다시 연결하기
+                </button>
+              )}
             </div>
-            <div>
-              <span className="text-[9px] text-amber-300/80 font-bold block leading-none">점수 (SCORE)</span>
-              <span className="text-sm sm:text-base font-black text-amber-300 font-mono tracking-tight leading-none">
-                {currentScore.toLocaleString()}점
-              </span>
-            </div>
-            {playerProfile.classCode && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-bold border border-blue-400/30">
-                {playerProfile.classCode}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+            <button onClick={() => setClassroomError(null)} className="p-1 text-slate-300" aria-label="닫기">
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Container - Fixed Scale Gameplay Viewport */}
       <div className="w-full max-w-[1240px] h-full max-h-full flex flex-col items-center justify-center overflow-hidden">
@@ -643,6 +688,9 @@ export default function App() {
             onOpenLeaderboard={() => setShowLeaderboard(true)}
             onOpenRules={() => setShowRules(true)}
             onOpenSettings={() => setShowSettings(true)}
+            score={currentScore}
+            classCode={playerProfile.classCode}
+            isClassConnected={isClassConnected}
           />
         )}
 
@@ -708,6 +756,7 @@ export default function App() {
               selectedFam={playerProfile.fam}
               onFamChange={handleSwitchFam}
               onResetGame={() => {
+                if (gameState === 'playing') saveResultToClass(false);
                 setGameState('start');
               }}
               onReshuffleQuests={() => {

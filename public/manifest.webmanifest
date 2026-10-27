@@ -1,0 +1,14 @@
+{
+  "name": "PROMISE LAND : 믿음의 항해",
+  "short_name": "믿음의 항해",
+  "description": "예수님과 함께하는 36개 성경 말씀 암송 모바일 RPG",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#060b13",
+  "theme_color": "#060b13",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
