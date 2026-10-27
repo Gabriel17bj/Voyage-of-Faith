@@ -23,13 +23,13 @@ export function getInviteUrlWarning(): string | null {
     return null;
   }
   if (host === 'localhost' || host.startsWith('127.') || host.startsWith('192.168.') || host.startsWith('10.')) {
-    return '지금 주소는 이 컴퓨터에서만 열리는 주소입니다. 학생 휴대폰에서는 접속할 수 없습니다. Vercel 배포 주소에서 교사 대시보드를 열어 링크를 복사하세요.';
+    return '이 주소는 학생 휴대폰에서 열리지 않아요. 배포한 사이트 주소(예: https://프로젝트이름.vercel.app)에서 링크를 복사하세요.';
   }
   if (host.startsWith('ais-dev-') || host.includes('aistudio') || host.endsWith('.googleusercontent.com')) {
-    return '지금 주소는 Google AI Studio 미리보기 주소라 본인만 열 수 있습니다. 학생에게는 Vercel 배포 주소(예: https://프로젝트이름.vercel.app)의 링크를 보내세요.';
+    return 'AI Studio 미리보기 주소는 학생이 열 수 없어요. 배포한 사이트 주소(예: https://프로젝트이름.vercel.app)에서 링크를 복사하세요.';
   }
   if (host.endsWith('.vercel.app') && (host.includes('-git-') || /-[a-z0-9]{9}-/.test(host))) {
-    return '지금 주소는 Vercel "미리보기 배포" 주소입니다. 미리보기 주소는 Vercel 로그인이 필요해 학생이 열 수 없을 수 있습니다. Production 주소(https://프로젝트이름.vercel.app)를 사용하세요.';
+    return 'Vercel 미리보기 주소는 학생이 열 수 없을 수 있어요. https://프로젝트이름.vercel.app 주소에서 링크를 복사하세요.';
   }
   return null;
 }
@@ -57,64 +57,59 @@ export const ConnectionCheck: React.FC<ConnectionCheckProps> = ({ classCode, aut
     if (autoRun) run();
   }, [autoRun, classCode]);
 
-  const urlWarning = getInviteUrlWarning();
   const modeLabel =
-    result?.mode === 'gas' ? '구글 스프레드시트' : result?.mode === 'firebase' ? 'Firebase 클라우드' : result?.mode === 'server' ? '자체 서버(server.ts)' : result?.mode === 'local' ? '로컬(이 기기만)' : '확인 중';
+    result?.mode === 'gas'
+      ? '구글 스프레드시트'
+      : result?.mode === 'firebase'
+      ? 'Firebase'
+      : result?.mode === 'server'
+      ? '자체 서버'
+      : result?.mode === 'local'
+      ? '저장소 없음'
+      : '';
 
   return (
-    <div className={`rounded-xl border ${result && !result.ok ? 'border-red-500/60 bg-red-950/30' : 'border-slate-700 bg-slate-900/80'} p-3 text-xs flex flex-col gap-2`}>
+    <div className="rounded-2xl bg-white border border-line p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-black text-slate-100">
-          📡 다른 기기 접속 진단 <span className="font-normal text-slate-400">({modeLabel})</span>
-        </span>
+        <div>
+          <p className="font-bold">연결 확인</p>
+          {modeLabel && <p className="text-sm text-muted">저장 위치: {modeLabel}</p>}
+        </div>
         <button
           type="button"
           onClick={run}
           disabled={running}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-slate-200 font-bold flex items-center gap-1 disabled:opacity-60 active:scale-95"
+          className="h-10 px-3 rounded-lg border border-line text-sm font-bold flex items-center gap-1.5 active:bg-slate-50 disabled:text-slate-400"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${running ? 'animate-spin' : ''}`} />
-          {running ? '진단 중' : '진단하기'}
+          <RefreshCw className={`w-4 h-4 ${running ? 'animate-spin' : ''}`} />
+          {running ? '확인 중' : '다시 확인'}
         </button>
       </div>
 
       {result && (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col gap-2">
           {result.steps.map((st, i) => (
-            <li key={i} className="flex items-start gap-2">
+            <li key={i} className="flex items-start gap-2 text-[15px]">
               {st.ok ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-px" />
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
               ) : (
-                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-px" />
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               )}
               <div className="min-w-0">
-                <div className={`font-bold ${st.ok ? 'text-emerald-200' : 'text-red-200'}`}>{st.label}</div>
-                {!compact || !st.ok ? <div className="text-slate-300 break-words">{st.detail}</div> : null}
+                <p className="font-bold">{st.label}</p>
+                {(!compact || !st.ok) && <p className="text-sm text-muted break-words">{st.detail}</p>}
               </div>
             </li>
           ))}
         </ul>
       )}
 
-      {result?.ok && (
-        <div className="text-emerald-300 font-bold">✅ 다른 휴대폰에서 이 수업 코드로 접속할 수 있는 상태입니다.</div>
-      )}
+      {result?.ok && <p className="text-sm font-bold text-emerald-700">학생들이 다른 휴대폰에서 들어올 수 있어요.</p>}
 
       {result?.sheetUrl && (
-        <a
-          href={result.sheetUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="self-start px-2.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold"
-        >
-          📊 기록 스프레드시트 열기
+        <a href={result.sheetUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-brand underline underline-offset-4">
+          기록 스프레드시트 열기
         </a>
-      )}
-
-      {urlWarning && (
-        <div className="rounded-lg border border-amber-400/60 bg-amber-950/50 p-2 text-amber-100 leading-relaxed">
-          ⚠️ {urlWarning}
-        </div>
       )}
     </div>
   );
