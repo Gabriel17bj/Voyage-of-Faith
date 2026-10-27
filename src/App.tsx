@@ -36,6 +36,8 @@ import {
   sendHeartbeat,
   markStudentOffline,
   recordGameResult,
+  getHeartbeatIntervalMs,
+  getResolvedSyncMode,
 } from './utils/cloud';
 import { 
   loadSavedProgress, 
@@ -266,7 +268,7 @@ export default function App() {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') sendHeartbeat(code);
-    }, 30000);
+    }, getHeartbeatIntervalMs());
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -333,7 +335,8 @@ export default function App() {
         isCompleted: gameState === 'completed',
         completedAt: gameState === 'completed' ? Date.now() : undefined,
       });
-    }, 300);
+      // 스프레드시트 모드는 요청 수를 줄이기 위해 변경을 모아서 전송
+    }, getResolvedSyncMode() === 'gas' ? 1500 : 300);
 
     return () => clearTimeout(timeout);
   }, [

@@ -23,6 +23,7 @@ import {
   exportResultsToCsv,
   clearClassResults,
   detectSyncMode,
+  getGasSheetUrl,
   SyncMode,
   DEFAULT_DEMO_CLASSROOMS,
   DEFAULT_DEMO_STUDENTS,
@@ -99,8 +100,13 @@ export const TeacherDashboard: React.FC = () => {
   const [results, setResults] = useState<GameResult[]>([]);
   const [syncMode, setSyncMode] = useState<SyncMode | null>(null);
 
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
+
   useEffect(() => {
-    detectSyncMode().then(setSyncMode);
+    detectSyncMode().then((mode) => {
+      setSyncMode(mode);
+      if (mode === 'gas') getGasSheetUrl().then(setSheetUrl);
+    });
   }, []);
 
   // Student Detail Modal
@@ -701,8 +707,23 @@ export const TeacherDashboard: React.FC = () => {
       {/* Sync engine status banner */}
       {!isDemoMode && syncMode === 'local' && (
         <div className="bg-red-950/80 border-b border-red-500/40 px-4 py-2 text-[11px] sm:text-xs text-red-200 leading-relaxed">
-          <strong>⚠️ 로컬 모드:</strong> Firebase 설정(VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID)이 없어
-          이 브라우저 안에서만 기록됩니다. <strong>다른 휴대폰의 학생은 접속할 수 없습니다.</strong> Vercel 환경변수 등록 후 Redeploy 해 주세요. (README 참고)
+          <strong>⚠️ 로컬 모드:</strong> 기록 서버(구글 스프레드시트 웹 앱 주소)가 설정되지 않아
+          이 브라우저 안에서만 기록됩니다. <strong>다른 휴대폰의 학생은 접속할 수 없습니다.</strong> src/config.ts 에 Apps Script 주소를 넣거나 Vercel 환경변수 VITE_GAS_URL 등록 후 다시 배포해 주세요. (README 참고)
+        </div>
+      )}
+      {!isDemoMode && syncMode === 'gas' && (
+        <div className="bg-emerald-950/70 border-b border-emerald-500/30 px-4 py-1.5 text-[11px] text-emerald-100 flex flex-wrap items-center justify-between gap-2">
+          <span>📊 구글 스프레드시트에 기록 중입니다. 학생 현황은 약 5초마다 새로고침됩니다.</span>
+          {sheetUrl && (
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+            >
+              구글 시트 열기
+            </a>
+          )}
         </div>
       )}
       {!isDemoMode && syncMode === 'server' && (
@@ -736,7 +757,13 @@ export const TeacherDashboard: React.FC = () => {
                 </h1>
                 <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-bold border border-emerald-400/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {syncMode === 'firebase' ? '클라우드 실시간' : syncMode === 'server' ? '서버 실시간' : '실시간 동기화'}
+                  {syncMode === 'gas'
+                    ? '구글 시트 연동'
+                    : syncMode === 'firebase'
+                    ? '클라우드 실시간'
+                    : syncMode === 'server'
+                    ? '서버 실시간'
+                    : '실시간 동기화'}
                 </span>
               </div>
               <span className="text-[10px] text-slate-400">{currentUser.email}</span>
@@ -1415,7 +1442,8 @@ export const TeacherDashboard: React.FC = () => {
                       onClick={async () => {
                         if (!window.confirm(`[${selectedClassCode}] 수업의 게임 기록 ${results.length}건을 모두 삭제할까요? 되돌릴 수 없습니다.`)) return;
                         sounds.playTap();
-                        await clearClassResults(selectedClassCode);
+                        const r = await clearClassResults(selectedClassCode);
+                        if (!r.ok && r.message) window.alert(r.message);
                       }}
                       disabled={results.length === 0}
                       className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-900 text-slate-300 text-xs font-bold border border-slate-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
@@ -1608,7 +1636,7 @@ export const TeacherDashboard: React.FC = () => {
       {/* New Classroom Creation Modal */}
       {showNewClassModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-[#0c1c30] border-2 border-[#8e5837] rounded-3xl p-6 shadow-2xl flex flex-col gap-4 text-slate-100">
+          <div className="w-full max-w-md bg-[#0c1c30] border-2 border-[#8e5837] rounded-3xl p-6 shadow-2xl flex flex-col gap-4 text-slate-100 modal-scroll">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <h3 className="font-black text-base text-amber-300">새로운 수업 개설</h3>
               <button
@@ -1688,7 +1716,7 @@ export const TeacherDashboard: React.FC = () => {
       {/* Classroom Invite & Share Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm select-none">
-          <div className="relative w-full max-w-lg bg-[#0c1c32] border-2 sm:border-4 border-[#8e5837] rounded-3xl p-5 sm:p-6 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col gap-4 text-slate-100">
+          <div className="relative w-full max-w-lg bg-[#0c1c32] border-2 sm:border-4 border-[#8e5837] rounded-3xl p-5 sm:p-6 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col gap-4 text-slate-100 modal-scroll">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/40">
@@ -1705,7 +1733,8 @@ export const TeacherDashboard: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowInviteModal(false)}
-                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                aria-label="초대 창 닫기"
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
               >
                 ✕
               </button>

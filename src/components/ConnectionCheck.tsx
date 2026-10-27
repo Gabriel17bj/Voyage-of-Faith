@@ -59,7 +59,7 @@ export const ConnectionCheck: React.FC<ConnectionCheckProps> = ({ classCode, aut
 
   const urlWarning = getInviteUrlWarning();
   const modeLabel =
-    result?.mode === 'firebase' ? 'Firebase 클라우드' : result?.mode === 'server' ? '자체 서버(server.ts)' : result?.mode === 'local' ? '로컬(이 기기만)' : '확인 중';
+    result?.mode === 'gas' ? '구글 스프레드시트' : result?.mode === 'firebase' ? 'Firebase 클라우드' : result?.mode === 'server' ? '자체 서버(server.ts)' : result?.mode === 'local' ? '로컬(이 기기만)' : '확인 중';
 
   return (
     <div className={`rounded-xl border ${result && !result.ok ? 'border-red-500/60 bg-red-950/30' : 'border-slate-700 bg-slate-900/80'} p-3 text-xs flex flex-col gap-2`}>
@@ -98,6 +98,17 @@ export const ConnectionCheck: React.FC<ConnectionCheckProps> = ({ classCode, aut
 
       {result?.ok && (
         <div className="text-emerald-300 font-bold">✅ 다른 휴대폰에서 이 수업 코드로 접속할 수 있는 상태입니다.</div>
+      )}
+
+      {result?.sheetUrl && (
+        <a
+          href={result.sheetUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="self-start px-2.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold"
+        >
+          📊 기록 스프레드시트 열기
+        </a>
       )}
 
       {urlWarning && (

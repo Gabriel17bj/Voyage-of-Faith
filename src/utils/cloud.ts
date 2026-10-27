@@ -10,16 +10,19 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured, getFirebaseConfigSummary } from './firebase';
+import { GAS_WEB_APP_URL } from '../config';
 import { StudentSession, Classroom, PlayerProfile, FamId, GameResult } from '../types';
 
 /**
  * 실시간 수업 연동 엔진 (하나의 엔진만 사용해 기록이 섞이지 않도록 함)
  *
+ *  - 'gas'      : 구글 스프레드시트 + Apps Script 웹 앱 (gas/Code.gs). 설정되어 있으면 최우선 사용.
+ *                 시트에 학생 현황/게임 기록이 남고, 교사 화면은 몇 초마다 새로 불러옴.
  *  - 'firebase' : Firestore(구글) 사용. Vercel 배포 시 기본. 모든 기기 간 실시간 동기화 + 영구 기록.
  *  - 'server'   : server.ts(Express) API 사용. AI Studio 미리보기 / `npm run dev` 환경.
  *  - 'local'    : 위 둘 다 없을 때. 같은 브라우저 안에서만 동작하는 데모 모드.
  */
-export type SyncMode = 'firebase' | 'server' | 'local';
+export type SyncMode = 'gas' | 'firebase' | 'server' | 'local';
 
 // ============================================================================
 // CONSTANTS & STORAGE KEYS FOR LOCAL / OFFLINE FALLBACK
@@ -33,6 +36,36 @@ const SYNC_CHANNEL_NAME = 'PROMISE_LAND_BROADCAST_SYNC_V1';
 
 /** 이 시간 안에 신호가 있으면 '접속 중'으로 표시 */
 export const ONLINE_THRESHOLD_MS = 75 * 1000;
+/** 스프레드시트 모드는 Apps Script 사용량 한도를 고려해 신호 간격이 길어 기준도 넉넉하게 */
+const GAS_ONLINE_THRESHOLD_MS = 150 * 1000;
+
+const GAS_URL = String(import.meta.env.VITE_GAS_URL || GAS_WEB_APP_URL || '').trim();
+
+export function isGasConfigured(): boolean {
+  return /^https:\/\/script\.google(usercontent)?\.com\/.+/.test(GAS_URL);
+}
+
+export function getGasUrlPreview(): string {
+  if (!GAS_URL) return '';
+  const m = GAS_URL.match(/\/s\/([^/]+)\//);
+  return m ? `…/s/${m[1].slice(0, 8)}…${m[1].slice(-4)}/exec` : GAS_URL.slice(0, 40);
+}
+
+/** 교사 화면의 '구글 시트 열기' 링크용 */
+export async function getGasSheetUrl(): Promise<string | null> {
+  if (!isGasConfigured()) return null;
+  try {
+    const data = await withTimeout(gasGet<{ sheetUrl?: string }>({ action: 'health' }), 20000);
+    return data.sheetUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 학생 기기의 접속 신호 간격 (스프레드시트 모드는 60초) */
+export function getHeartbeatIntervalMs(): number {
+  return resolvedSyncMode === 'gas' ? 60000 : 30000;
+}
 
 // Initial preloaded classrooms
 export const DEFAULT_DEMO_CLASSROOMS: Classroom[] = [
@@ -255,6 +288,7 @@ let resolvedSyncMode: SyncMode | null = null;
 export function detectSyncMode(): Promise<SyncMode> {
   if (!syncModePromise) {
     syncModePromise = (async (): Promise<SyncMode> => {
+      if (isGasConfigured()) return 'gas';
       if (isFirebaseConfigured() && db) return 'firebase';
       try {
         const res = await fetch('/api/health', { cache: 'no-store' });
@@ -298,7 +332,15 @@ function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
 export function describeSyncError(err: any): string {
   const code = String(err?.code || '');
   const msg = String(err?.message || '');
-  if (code === 'class-not-found') return msg;
+  if (code === 'class-not-found' || code === 'closed' || code === 'exists') return msg;
+  if (code === 'busy') return '접속하는 학생이 많아 잠시 밀렸습니다. 몇 초 뒤 다시 시도해 주세요.';
+  if (code === 'gas-unreachable') {
+    return '구글 스프레드시트 서버에 연결할 수 없습니다. (교사: Apps Script를 "웹 앱"으로 배포하고 액세스 권한을 "모든 사용자"로 설정했는지, 주소가 /exec 로 끝나는지 확인)';
+  }
+  if (code === 'gas-not-json') {
+    return '구글 스프레드시트 서버가 올바른 응답을 주지 않았습니다. (교사: 웹 앱 액세스 권한을 "모든 사용자"로 다시 배포했는지 확인)';
+  }
+  if (code === 'server-error') return `스프레드시트 서버 오류: ${msg}`;
   if (code === 'timeout' || code === 'unavailable' || /offline/i.test(msg)) {
     return '수업 서버에 응답이 없습니다. 인터넷 연결을 확인하세요. (교사: Firebase 콘솔에서 Firestore 데이터베이스를 만들었는지 확인)';
   }
@@ -321,7 +363,7 @@ export function describeSyncError(err: any): string {
 }
 
 export const LOCAL_MODE_JOIN_ERROR =
-  '이 사이트에 수업 서버(Firebase)가 설정되어 있지 않아 선생님 화면과 연결할 수 없습니다. 선생님께 알려주세요. (혼자 연습하기는 가능)';
+  '이 사이트에 수업 기록 서버(구글 스프레드시트)가 설정되어 있지 않아 선생님 화면과 연결할 수 없습니다. 선생님께 알려주세요. (혼자 연습하기는 가능)';
 
 async function apiJson<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -333,6 +375,78 @@ async function apiJson<T = any>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(data?.error || `요청 실패 (${res.status})`);
   }
   return data as T;
+}
+
+// ============================================================================
+// GOOGLE SHEETS (APPS SCRIPT) HELPERS
+// ============================================================================
+
+async function gasParse<T>(res: Response): Promise<T> {
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw Object.assign(new Error('not json'), { code: 'gas-not-json' });
+  }
+  if (!data || data.success === false) {
+    throw Object.assign(new Error(data?.error || '요청 실패'), { code: data?.code || 'server-error' });
+  }
+  return data as T;
+}
+
+async function gasGet<T = any>(params: Record<string, string>): Promise<T> {
+  const url = `${GAS_URL}?${new URLSearchParams({ ...params, _: String(Date.now()) })}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET', redirect: 'follow', cache: 'no-store' });
+  } catch {
+    throw Object.assign(new Error('unreachable'), { code: 'gas-unreachable' });
+  }
+  return gasParse<T>(res);
+}
+
+/** Content-Type을 text/plain으로 보내야 브라우저 사전요청(CORS preflight) 없이 Apps Script에 전달됨 */
+async function gasPost<T = any>(body: Record<string, unknown>): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw Object.assign(new Error('unreachable'), { code: 'gas-unreachable' });
+  }
+  return gasParse<T>(res);
+}
+
+/** 일정 간격으로 불러오기 (탭이 숨겨져 있으면 쉬어서 Apps Script 사용량 절약) */
+function startPolling(fn: () => Promise<void> | void, intervalMs: number): () => void {
+  let stopped = false;
+  let timer: number | undefined;
+  const tick = async () => {
+    if (stopped) return;
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      try {
+        await fn();
+      } catch {}
+    }
+    if (!stopped) timer = window.setTimeout(tick, intervalMs);
+  };
+  tick();
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && !stopped) {
+      window.clearTimeout(timer);
+      tick();
+    }
+  };
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    stopped = true;
+    window.clearTimeout(timer);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
 }
 
 // ============================================================================
@@ -574,7 +688,9 @@ export function sortStudentsByRank(list: StudentSession[]): StudentSession[] {
   return [...list]
     .map((st) => ({
       ...st,
-      isOnline: st.isOnline !== false && now - (st.lastActiveAt || 0) < ONLINE_THRESHOLD_MS,
+      isOnline:
+        st.isOnline !== false &&
+        now - (st.lastActiveAt || 0) < (resolvedSyncMode === 'gas' ? GAS_ONLINE_THRESHOLD_MS : ONLINE_THRESHOLD_MS),
     }))
     .sort((a, b) => {
       if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
@@ -649,6 +765,16 @@ export async function joinClassroom(
         session = newStudentSession(studentId, classCode, profile, initialScore);
         await withTimeout(setDoc(studentRef, session));
       }
+    } else if (mode === 'gas') {
+      const data = await withTimeout(
+        gasPost<{ session: StudentSession }>({
+          action: 'join',
+          classCode,
+          session: newStudentSession(studentId, classCode, profile, initialScore),
+        }),
+        20000
+      );
+      session = data.session;
     } else {
       const data = await withTimeout(apiJson<{ session: StudentSession }>(`/api/classrooms/${classCode}/join`, {
         method: 'POST',
@@ -701,6 +827,9 @@ export async function updateStudentProgress(
     if (mode === 'firebase' && db) {
       const identity = activeIdentity && activeIdentity.classCode === cleanCode ? stripUndefined({ ...activeIdentity }) : {};
       await setDoc(doc(db, 'classrooms', cleanCode, 'students', studentId), { ...identity, ...payload }, { merge: true });
+    } else if (mode === 'gas') {
+      const identity = activeIdentity && activeIdentity.classCode === cleanCode ? stripUndefined({ ...activeIdentity }) : {};
+      await gasPost({ action: 'progress', classCode: cleanCode, studentId, updates: payload, identity });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/progress`, {
         method: 'POST',
@@ -732,6 +861,8 @@ export async function sendHeartbeat(classCode: string): Promise<void> {
         lastActiveAt: now,
         isOnline: true,
       });
+    } else if (mode === 'gas') {
+      await gasPost({ action: 'heartbeat', classCode: cleanCode, studentId });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/heartbeat`, {
         method: 'POST',
@@ -755,6 +886,11 @@ export function markStudentOffline(classCode?: string): void {
   try {
     if (mode === 'firebase' && db) {
       updateDoc(doc(db, 'classrooms', cleanCode, 'students', studentId), { isOnline: false }).catch(() => {});
+    } else if (mode === 'gas') {
+      const body = JSON.stringify({ action: 'offline', classCode: cleanCode, studentId });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(GAS_URL, new Blob([body], { type: 'text/plain;charset=utf-8' }));
+      }
     } else if (mode === 'server') {
       const body = JSON.stringify({ studentId, updates: { isOnline: false } });
       if (navigator.sendBeacon) {
@@ -793,6 +929,14 @@ export async function recordGameResult(
   try {
     if (mode === 'firebase' && db) {
       await setDoc(doc(db, 'classrooms', cleanCode, 'results', record.id), record);
+    } else if (mode === 'gas') {
+      // 실패해도 기록이 남도록 한 번 더 시도
+      try {
+        await gasPost({ action: 'result', classCode: cleanCode, record });
+      } catch {
+        await new Promise((r) => setTimeout(r, 3000));
+        await gasPost({ action: 'result', classCode: cleanCode, record });
+      }
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/results`, {
         method: 'POST',
@@ -832,6 +976,11 @@ export function subscribeClassResults(
         (snap) => onUpdate(sortResults(snap.docs.map((d) => ({ ...(d.data() as GameResult), id: d.id })))),
         (err) => console.warn('[Cloud] subscribeClassResults error:', err)
       );
+    } else if (mode === 'gas') {
+      cleanup = startPolling(async () => {
+        const data = await gasGet<{ results: GameResult[] }>({ action: 'results', code: cleanCode });
+        if (!stopped) onUpdate(sortResults(data.results || []));
+      }, 15000);
     } else if (mode === 'server') {
       const fetchLatest = async () => {
         try {
@@ -860,6 +1009,7 @@ export interface SyncDiagnosis {
   ok: boolean;
   config: ReturnType<typeof getFirebaseConfigSummary>;
   steps: { label: string; ok: boolean; detail: string }[];
+  sheetUrl?: string;
 }
 
 /**
@@ -872,12 +1022,39 @@ export async function diagnoseConnection(classCode?: string): Promise<SyncDiagno
 
   if (mode === 'local') {
     steps.push({
-      label: '수업 서버 설정',
+      label: '기록 서버 설정',
       ok: false,
       detail:
-        'Firebase 환경변수(VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID)가 이 배포에 없습니다. Vercel 환경변수 등록 후 Redeploy 하세요.',
+        '구글 스프레드시트(Apps Script) 웹 앱 주소가 없습니다. src/config.ts 의 GAS_WEB_APP_URL 에 주소를 넣거나 Vercel 환경변수 VITE_GAS_URL 을 등록한 뒤 다시 배포하세요.',
     });
     return { mode, ok: false, config, steps };
+  }
+
+  if (mode === 'gas') {
+    let sheetUrl: string | undefined;
+    try {
+      const health = await withTimeout(gasGet<{ sheetUrl?: string }>({ action: 'health' }), 20000);
+      sheetUrl = health.sheetUrl;
+      steps.push({ label: '스프레드시트 서버 연결', ok: true, detail: `웹 앱 응답 정상 (${getGasUrlPreview()})` });
+    } catch (e) {
+      steps.push({ label: '스프레드시트 서버 연결', ok: false, detail: describeSyncError(e) });
+      return { mode, ok: false, config, steps };
+    }
+    const code = (classCode || '').trim().toUpperCase();
+    if (code) {
+      try {
+        const data = await withTimeout(gasGet<{ classrooms: Classroom[] }>({ action: 'classrooms' }), 20000);
+        const exists = (data.classrooms || []).some((c) => c.code === code);
+        steps.push(
+          exists
+            ? { label: `수업 [${code}] 확인`, ok: true, detail: "시트의 '수업' 탭에 등록되어 있어 학생이 입장할 수 있습니다." }
+            : { label: `수업 [${code}] 확인`, ok: false, detail: "시트에 이 수업이 없습니다. [+] 새 수업 만들기로 다시 만들어 주세요." }
+        );
+      } catch (e) {
+        steps.push({ label: `수업 [${code}] 확인`, ok: false, detail: describeSyncError(e) });
+      }
+    }
+    return { mode, ok: steps.every((st) => st.ok), config, steps, sheetUrl };
   }
 
   if (mode === 'server') {
@@ -969,6 +1146,13 @@ export function subscribeClassStudents(
         }
       );
       cleanups.push(unsub);
+    } else if (mode === 'gas') {
+      cleanups.push(
+        startPolling(async () => {
+          const data = await gasGet<{ students: StudentSession[] }>({ action: 'students', code: cleanCode });
+          if (Array.isArray(data.students)) emit(data.students);
+        }, 5000)
+      );
     } else if (mode === 'server') {
       let eventSource: EventSource | null = null;
       try {
@@ -1037,6 +1221,11 @@ export async function createClassroom(
         return { success: false, error: `이미 사용 중인 수업 코드 [${cleanCode}] 입니다.` };
       }
       await setDoc(classRef, newClass);
+    } else if (mode === 'gas') {
+      await withTimeout(
+        gasPost({ action: 'createClassroom', code: cleanCode, title: newClass.title, teacherEmail: newClass.teacherEmail }),
+        20000
+      );
     } else if (mode === 'server') {
       await apiJson('/api/classrooms', {
         method: 'POST',
@@ -1051,7 +1240,7 @@ export async function createClassroom(
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || '수업 생성에 실패했습니다.' };
+    return { success: false, error: mode === 'gas' ? describeSyncError(err) : err?.message || '수업 생성에 실패했습니다.' };
   }
 }
 
@@ -1089,6 +1278,11 @@ export function subscribeTeacherClassrooms(
         (snapshot) => onUpdate(filterAndSort(snapshot.docs.map((d) => d.data() as Classroom))),
         (err) => console.warn('[Cloud] subscribeTeacherClassrooms failed:', err)
       );
+    } else if (mode === 'gas') {
+      cleanup = startPolling(async () => {
+        const data = await gasGet<{ classrooms: Classroom[] }>({ action: 'classrooms' });
+        if (!stopped && Array.isArray(data.classrooms)) onUpdate(filterAndSort(data.classrooms));
+      }, 10000);
     } else if (mode === 'server') {
       const fetchClasses = async () => {
         try {
@@ -1121,6 +1315,8 @@ export async function setClassroomClosed(classCode: string, isClosed: boolean): 
   try {
     if (mode === 'firebase' && db) {
       await updateDoc(doc(db, 'classrooms', cleanCode), { isClosed });
+    } else if (mode === 'gas') {
+      await gasPost({ action: 'setClosed', classCode: cleanCode, isClosed });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/close`, {
         method: 'POST',
@@ -1154,6 +1350,8 @@ export async function resetClassroomStudents(classCode: string): Promise<void> {
   try {
     if (mode === 'firebase' && db) {
       await deleteFirestoreCollection(cleanCode, 'students');
+    } else if (mode === 'gas') {
+      await gasPost({ action: 'resetStudents', classCode: cleanCode });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/reset`, { method: 'POST' });
     } else {
@@ -1167,9 +1365,16 @@ export async function resetClassroomStudents(classCode: string): Promise<void> {
 /**
  * 게임 결과 기록 전체 삭제
  */
-export async function clearClassResults(classCode: string): Promise<void> {
+export async function clearClassResults(classCode: string): Promise<{ ok: boolean; message?: string }> {
   const cleanCode = classCode.trim().toUpperCase();
   const mode = await detectSyncMode();
+  if (mode === 'gas') {
+    // 스프레드시트 기록은 실수로 지워지지 않도록 앱에서 삭제하지 않음
+    return {
+      ok: false,
+      message: "구글 스프레드시트 모드에서는 기록이 영구 보관됩니다. 지우려면 스프레드시트의 '게임기록' 탭에서 직접 행을 삭제하세요.",
+    };
+  }
   try {
     if (mode === 'firebase' && db) {
       await deleteFirestoreCollection(cleanCode, 'results');
@@ -1180,7 +1385,9 @@ export async function clearClassResults(classCode: string): Promise<void> {
     }
   } catch (e) {
     console.warn('[Cloud] clearClassResults failed:', e);
+    return { ok: false, message: describeSyncError(e) };
   }
+  return { ok: true };
 }
 
 /**
@@ -1194,6 +1401,9 @@ export async function deleteClassroom(classCode: string): Promise<void> {
       await deleteFirestoreCollection(cleanCode, 'students');
       await deleteFirestoreCollection(cleanCode, 'results');
       await deleteDoc(doc(db, 'classrooms', cleanCode));
+    } else if (mode === 'gas') {
+      // 학생 현황과 수업만 삭제, 게임기록 시트는 보존
+      await gasPost({ action: 'deleteClassroom', classCode: cleanCode });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}`, { method: 'DELETE' });
     } else {
@@ -1252,6 +1462,8 @@ export function addSimulatedStudent(classCode: string, existing: StudentSession[
     try {
       if (mode === 'firebase' && db) {
         await setDoc(doc(db, 'classrooms', cleanCode, 'students', newStudent.id), newStudent);
+      } else if (mode === 'gas') {
+        await gasPost({ action: 'join', classCode: cleanCode, session: newStudent });
       } else if (mode === 'server') {
         await apiJson(`/api/classrooms/${cleanCode}/join`, {
           method: 'POST',
