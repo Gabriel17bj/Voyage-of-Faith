@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, Firestore } from 'firebase/firestore';
 
 /**
  * Firebase(구글) 설정 로딩 순서
@@ -62,15 +62,28 @@ if (isFirebaseConfigured()) {
       : getApp();
 
     auth = getAuth(app);
+    // 학교/교회 Wi-Fi, 일부 통신사망에서 실시간 스트림이 막히는 경우 자동으로 long-polling 사용
+    const settings = { experimentalAutoDetectLongPolling: true };
     db =
       config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)'
-        ? getFirestore(app, config.firestoreDatabaseId)
-        : getFirestore(app);
+        ? initializeFirestore(app, settings, config.firestoreDatabaseId)
+        : initializeFirestore(app, settings);
   } catch (err) {
     console.warn('[Firebase] Initialization failed:', err);
   }
 } else {
   console.info('[Firebase] 설정이 없어 서버/로컬 모드로 실행합니다.');
+}
+
+/** 교사용 연결 진단 화면에 표시할 설정 요약 (키는 일부만 노출) */
+export function getFirebaseConfigSummary() {
+  return {
+    configured: isFirebaseConfigured(),
+    projectId: config.projectId || '',
+    apiKeyPreview: config.apiKey ? `${config.apiKey.slice(0, 6)}…${config.apiKey.slice(-4)}` : '',
+    databaseId: config.firestoreDatabaseId || '(default)',
+    source: env.VITE_FIREBASE_API_KEY ? 'env' : appletConfig.apiKey ? 'firebase-applet-config.json' : 'none',
+  };
 }
 
 export { app, auth, db };

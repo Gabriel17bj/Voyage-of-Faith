@@ -393,17 +393,12 @@ app.post('/api/classrooms/:code/join', (req, res) => {
     return res.status(400).json({ success: false, error: '수업 코드가 필요합니다.' });
   }
 
-  // Auto create class if not exists yet so student is never blocked
+  // 오타 코드로 빈 수업이 생기지 않도록, 교사가 만든 수업에만 입장 가능
   if (!classrooms.has(cleanCode)) {
-    const autoClass: Classroom = {
-      code: cleanCode,
-      title: `${cleanCode} 성경탐험대`,
-      teacherEmail: 'teacher@promise.land',
-      createdAt: Date.now(),
-      isClosed: false,
-    };
-    classrooms.set(cleanCode, autoClass);
-    broadcastToClass('*', { type: 'CLASSROOM_CREATED', classroom: autoClass });
+    return res.status(404).json({
+      success: false,
+      error: `수업 코드 [${cleanCode}]를 찾을 수 없습니다. 선생님이 알려준 코드를 다시 확인하세요.`,
+    });
   }
 
   const currentClass = classrooms.get(cleanCode)!;

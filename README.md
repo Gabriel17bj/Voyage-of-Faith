@@ -37,6 +37,7 @@
 | `VITE_FIREBASE_AUTH_DOMAIN` | `authDomain` | 선택 |
 | `VITE_FIREBASE_APP_ID` | `appId` | 선택 |
 | `VITE_FIREBASE_DATABASE_ID` | (기본 DB가 아닐 때만) | 선택 |
+| `VITE_PUBLIC_APP_URL` | 학생 초대 링크에 쓸 공개 주소 (예: `https://voyage-of-faith.vercel.app`) | 선택 |
 
 Google AI Studio에서 Firebase를 연결해 `firebase-applet-config.json` 파일이 생긴 경우, 환경변수가 없어도 그 파일 값을 자동으로 사용합니다.
 
@@ -48,6 +49,19 @@ Google AI Studio에서 Firebase를 연결해 `firebase-applet-config.json` 파�
 4. **Deploy** — 환경변수를 바꾼 뒤에는 반드시 **Redeploy** 해야 반영됩니다(빌드 시 포함되는 값).
 
 배포 후 확인: `/#/teacher` 상단 배지가 **"클라우드 실시간"** 이면 Firebase 연결 성공입니다.
+
+## 다른 휴대폰에서 접속이 안 될 때
+
+교사 대시보드 → **초대(공유) 버튼** 또는 **수업 관리** 탭의 **📡 다른 기기 접속 진단**을 누르면 원인을 바로 알려줍니다.
+
+| 증상 | 원인 | 해결 |
+| --- | --- | --- |
+| 대시보드 상단에 빨간 **로컬 모드** 경고 / 학생 화면에 "수업 서버(Firebase)가 설정되어 있지 않아…" | Vercel에 Firebase 환경변수가 없음 (Vercel은 server.ts를 실행하지 않음) | Vercel 환경변수 등록 → **Redeploy** |
+| "수업 코드 [XXXXX]를 찾을 수 없습니다" | 코드 오타이거나, 교사가 만든 수업이 아님 | 대시보드에서 [+]로 수업을 만들고 그 코드를 사용 |
+| "접근을 거부했습니다" | Firestore 규칙 미게시 | `firestore.rules` 내용을 Firestore 규칙에 붙여넣고 게시 |
+| "응답이 없습니다" | Firestore 데이터베이스 미생성 / 프로젝트 ID 오타 / 네트워크 | Firestore Database 만들기, 환경변수 확인 |
+| "API 키가 올바르지 않습니다" / "Cloud Firestore API가 꺼져 있습니다" | Gemini용 키 등 다른 프로젝트의 키를 넣음 | Firebase 콘솔 웹 앱 설정의 `apiKey`를 그대로 사용 |
+| 링크를 눌러도 페이지가 안 열림 / 로그인 화면이 나옴 | AI Studio 미리보기 주소나 Vercel **미리보기(Preview)** 주소를 공유함 | `https://프로젝트이름.vercel.app` (Production) 주소에서 대시보드를 열고 링크 복사. 또는 `VITE_PUBLIC_APP_URL` 환경변수에 공개 주소 지정 |
 
 ## 로컬 실행
 

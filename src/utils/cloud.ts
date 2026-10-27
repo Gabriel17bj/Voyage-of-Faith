@@ -9,7 +9,7 @@ import {
   onSnapshot,
   writeBatch,
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from './firebase';
+import { db, isFirebaseConfigured, getFirebaseConfigSummary } from './firebase';
 import { StudentSession, Classroom, PlayerProfile, FamId, GameResult } from '../types';
 
 /**
@@ -276,6 +276,52 @@ export function detectSyncMode(): Promise<SyncMode> {
 export function getResolvedSyncMode(): SyncMode | null {
   return resolvedSyncMode;
 }
+
+/** 네트워크가 막혀 무한 대기하지 않도록 시간 제한 */
+function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'timeout' })), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
+/** Firebase/서버 오류를 학생·교사가 이해할 수 있는 안내문으로 변환 */
+export function describeSyncError(err: any): string {
+  const code = String(err?.code || '');
+  const msg = String(err?.message || '');
+  if (code === 'class-not-found') return msg;
+  if (code === 'timeout' || code === 'unavailable' || /offline/i.test(msg)) {
+    return '수업 서버에 응답이 없습니다. 인터넷 연결을 확인하세요. (교사: Firebase 콘솔에서 Firestore 데이터베이스를 만들었는지 확인)';
+  }
+  if (code === 'permission-denied' || /permission/i.test(msg)) {
+    if (/API has not been used|SERVICE_DISABLED|disabled/i.test(msg)) {
+      return '이 구글 API 키의 프로젝트에서 Cloud Firestore API가 꺼져 있습니다. (교사: Firebase 프로젝트의 웹 앱 API 키를 사용하세요)';
+    }
+    return '수업 서버가 접근을 거부했습니다. (교사: Firestore 규칙에 firestore.rules 내용을 게시했는지 확인)';
+  }
+  if (/api[- ]?key|API_KEY_INVALID|invalid-api-key|API key not valid/i.test(code + msg)) {
+    return '구글 API 키가 올바르지 않습니다. (교사: VITE_FIREBASE_API_KEY에 Firebase 웹 앱의 apiKey를 넣으세요)';
+  }
+  if (/referer|referrer|blocked/i.test(msg)) {
+    return '구글 API 키에 웹사이트 제한이 걸려 있습니다. (교사: Google Cloud 콘솔 > API 키 > 웹사이트 제한에 배포 주소를 추가)';
+  }
+  if (code === 'not-found' || /database .* does not exist|NOT_FOUND/i.test(msg)) {
+    return 'Firestore 데이터베이스가 없습니다. (교사: Firebase 콘솔 > Firestore Database > 데이터베이스 만들기)';
+  }
+  return `수업 서버 연결 오류: ${code || msg || '알 수 없는 오류'}`;
+}
+
+export const LOCAL_MODE_JOIN_ERROR =
+  '이 사이트에 수업 서버(Firebase)가 설정되어 있지 않아 선생님 화면과 연결할 수 없습니다. 선생님께 알려주세요. (혼자 연습하기는 가능)';
 
 async function apiJson<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -562,21 +608,32 @@ export async function joinClassroom(
   const studentId = buildStudentId(profile.name);
   const mode = await detectSyncMode();
 
+  // 공유 서버가 없으면 다른 기기(선생님 화면)와 연결할 수 없으므로 '연결됨'으로 속이지 않음
+  if (mode === 'local') {
+    return { success: false, error: LOCAL_MODE_JOIN_ERROR, mode };
+  }
+
+  const notFound = () =>
+    Object.assign(
+      new Error(`수업 코드 [${classCode}]를 찾을 수 없습니다. 선생님이 알려준 코드를 다시 확인하세요. (0과 O, 1과 I 구분)`),
+      { code: 'class-not-found' }
+    );
+
   try {
     let session: StudentSession;
 
     if (mode === 'firebase' && db) {
       const classRef = doc(db, 'classrooms', classCode);
-      const classSnap = await getDoc(classRef);
+      const classSnap = await withTimeout(getDoc(classRef));
       if (!classSnap.exists()) {
-        // 학생이 막히지 않도록 수업방 자동 생성 (교사 대시보드에서 바로 보임)
-        await setDoc(classRef, defaultClassroom(classCode));
+        // 오타 코드로 엉뚱한 빈 수업이 만들어지지 않도록, 교사가 만든 수업에만 입장
+        throw notFound();
       } else if ((classSnap.data() as Classroom).isClosed) {
         return { success: false, error: '해당 수업은 입장이 마감되었습니다.' };
       }
 
       const studentRef = doc(db, 'classrooms', classCode, 'students', studentId);
-      const existingSnap = await getDoc(studentRef);
+      const existingSnap = await withTimeout(getDoc(studentRef));
       const now = Date.now();
       if (existingSnap.exists()) {
         const patch = {
@@ -586,14 +643,14 @@ export async function joinClassroom(
           lastActiveAt: now,
           isOnline: true,
         };
-        await updateDoc(studentRef, patch);
+        await withTimeout(updateDoc(studentRef, patch));
         session = { ...(existingSnap.data() as StudentSession), ...patch, id: studentId };
       } else {
         session = newStudentSession(studentId, classCode, profile, initialScore);
-        await setDoc(studentRef, session);
+        await withTimeout(setDoc(studentRef, session));
       }
-    } else if (mode === 'server') {
-      const data = await apiJson<{ session: StudentSession }>(`/api/classrooms/${classCode}/join`, {
+    } else {
+      const data = await withTimeout(apiJson<{ session: StudentSession }>(`/api/classrooms/${classCode}/join`, {
         method: 'POST',
         body: JSON.stringify({
           studentId,
@@ -602,36 +659,8 @@ export async function joinClassroom(
           characterId: profile.characterId || 'sailor_boy',
           initialScore,
         }),
-      });
+      }));
       session = data.session;
-    } else {
-      const classrooms = getLocalClassrooms();
-      let targetClass = classrooms.find((c) => c.code === classCode);
-      if (!targetClass) {
-        targetClass = defaultClassroom(classCode);
-        saveLocalClassrooms([...classrooms, targetClass]);
-      }
-      if (targetClass.isClosed) {
-        return { success: false, error: '해당 수업은 현재 입장이 마감되었습니다.' };
-      }
-
-      const students = getLocalStudents(classCode);
-      const existingIdx = students.findIndex((s) => s.id === studentId);
-      if (existingIdx >= 0) {
-        session = {
-          ...students[existingIdx],
-          studentName: profile.name,
-          famId: profile.fam,
-          characterId: profile.characterId || 'sailor_boy',
-          lastActiveAt: Date.now(),
-          isOnline: true,
-        };
-        students[existingIdx] = session;
-      } else {
-        session = newStudentSession(studentId, classCode, profile, initialScore);
-        students.push(session);
-      }
-      saveLocalStudents(classCode, students);
     }
 
     activeStudentId = studentId;
@@ -647,13 +676,10 @@ export async function joinClassroom(
     return { success: true, session, mode };
   } catch (err: any) {
     console.warn('[Cloud] joinClassroom failed:', err);
-    return {
-      success: false,
-      error: err?.message?.includes('permission')
-        ? '서버 권한 설정(Firestore 보안 규칙)을 확인해 주세요.'
-        : '수업 서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.',
-      mode,
-    };
+    if (mode === 'server' && /찾을 수 없습니다/.test(String(err?.message))) {
+      return { success: false, error: notFound().message, mode };
+    }
+    return { success: false, error: describeSyncError(err), mode };
   }
 }
 
@@ -827,6 +853,79 @@ export function subscribeClassResults(
     stopped = true;
     if (cleanup) cleanup();
   };
+}
+
+export interface SyncDiagnosis {
+  mode: SyncMode;
+  ok: boolean;
+  config: ReturnType<typeof getFirebaseConfigSummary>;
+  steps: { label: string; ok: boolean; detail: string }[];
+}
+
+/**
+ * 교사용 연결 진단: 다른 기기의 학생이 접속할 수 있는 상태인지 실제로 읽기/쓰기 시험
+ */
+export async function diagnoseConnection(classCode?: string): Promise<SyncDiagnosis> {
+  const mode = await detectSyncMode();
+  const config = getFirebaseConfigSummary();
+  const steps: SyncDiagnosis['steps'] = [];
+
+  if (mode === 'local') {
+    steps.push({
+      label: '수업 서버 설정',
+      ok: false,
+      detail:
+        'Firebase 환경변수(VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID)가 이 배포에 없습니다. Vercel 환경변수 등록 후 Redeploy 하세요.',
+    });
+    return { mode, ok: false, config, steps };
+  }
+
+  if (mode === 'server') {
+    try {
+      await withTimeout(apiJson('/api/health'), 8000);
+      steps.push({ label: '서버 연결', ok: true, detail: '서버(server.ts) 응답 정상' });
+    } catch (e) {
+      steps.push({ label: '서버 연결', ok: false, detail: describeSyncError(e) });
+    }
+    return { mode, ok: steps.every((st) => st.ok), config, steps };
+  }
+
+  steps.push({
+    label: 'Firebase 설정',
+    ok: true,
+    detail: `프로젝트: ${config.projectId} / 키: ${config.apiKeyPreview} / DB: ${config.databaseId}`,
+  });
+
+  try {
+    const snap = await withTimeout(getDocs(collection(db!, 'classrooms')), 12000);
+    steps.push({ label: '읽기 (학생 목록 불러오기)', ok: true, detail: `수업 ${snap.size}개 확인` });
+  } catch (e) {
+    steps.push({ label: '읽기 (학생 목록 불러오기)', ok: false, detail: describeSyncError(e) });
+    return { mode, ok: false, config, steps };
+  }
+
+  const code = (classCode || '').trim().toUpperCase();
+  if (code) {
+    try {
+      const ref = doc(db!, 'classrooms', code);
+      const existing = await withTimeout(getDoc(ref));
+      if (!existing.exists()) {
+        steps.push({
+          label: `수업 [${code}] 확인`,
+          ok: false,
+          detail: '이 수업이 클라우드에 없습니다. [+] 새 수업 만들기로 다시 만들어 주세요.',
+        });
+      } else {
+        const data = existing.data() as Classroom;
+        await withTimeout(setDoc(ref, { code, title: data.title || `${code} 수업` }, { merge: true }));
+        steps.push({ label: `쓰기 (수업 [${code}] 저장)`, ok: true, detail: '학생 입장/기록 저장 가능' });
+      }
+    } catch (e) {
+      steps.push({ label: `쓰기 (수업 [${code}] 저장)`, ok: false, detail: describeSyncError(e) });
+    }
+  }
+
+  return { mode, ok: steps.every((st) => st.ok), config, steps };
 }
 
 /**

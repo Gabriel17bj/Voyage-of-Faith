@@ -32,6 +32,7 @@ import { VERSE_QUESTS, FAM_LIST } from '../data/verses';
 import { HERO_CHARACTERS } from '../data/characters';
 import { getRankTier } from '../utils/score';
 import { StudentDetailModal } from './StudentDetailModal';
+import { ConnectionCheck, buildInviteLink, copyText } from './ConnectionCheck';
 import {
   Users,
   Trophy,
@@ -80,7 +81,19 @@ export const TeacherDashboard: React.FC = () => {
 
   // Classroom state
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
-  const [selectedClassCode, setSelectedClassCode] = useState<string>('FAITH');
+  const [selectedClassCode, setSelectedClassCode] = useState<string>(() => {
+    try {
+      return localStorage.getItem('PROMISE_LAND_TEACHER_SELECTED_CLASS') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (selectedClassCode && !isDemoMode) localStorage.setItem('PROMISE_LAND_TEACHER_SELECTED_CLASS', selectedClassCode);
+    } catch {}
+  }, [selectedClassCode, isDemoMode]);
   const [students, setStudents] = useState<StudentSession[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard' | 'results' | 'verses' | 'settings'>('overview');
   const [results, setResults] = useState<GameResult[]>([]);
@@ -165,9 +178,10 @@ export const TeacherDashboard: React.FC = () => {
 
     const unsub = subscribeTeacherClassrooms(currentUser.email, (classes) => {
       setClassrooms(classes);
+      // 선택된 수업이 실제로 존재하지 않으면 (예: 다른 기기에서 삭제) 가장 최근 수업으로 전환
       setSelectedClassCode((prev) => {
-        if (prev) return prev;
-        return classes.length > 0 ? classes[0].code : 'FAITH';
+        if (prev && classes.some((c) => c.code === prev)) return prev;
+        return classes.length > 0 ? classes[0].code : '';
       });
     });
 
@@ -688,7 +702,7 @@ export const TeacherDashboard: React.FC = () => {
       {!isDemoMode && syncMode === 'local' && (
         <div className="bg-red-950/80 border-b border-red-500/40 px-4 py-2 text-[11px] sm:text-xs text-red-200 leading-relaxed">
           <strong>⚠️ 로컬 모드:</strong> Firebase 설정(VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID)이 없어
-          이 브라우저 안에서만 기록됩니다. 다른 기기의 학생은 보이지 않습니다. README의 배포 안내를 확인해 주세요.
+          이 브라우저 안에서만 기록됩니다. <strong>다른 휴대폰의 학생은 접속할 수 없습니다.</strong> Vercel 환경변수 등록 후 Redeploy 해 주세요. (README 참고)
         </div>
       )}
       {!isDemoMode && syncMode === 'server' && (
@@ -1480,6 +1494,8 @@ export const TeacherDashboard: React.FC = () => {
                   </p>
                 </div>
 
+                {!isDemoMode && <ConnectionCheck classCode={selectedClassCode} />}
+
                 {/* Admission Lock */}
                 <div className="flex items-center justify-between p-4 rounded-xl bg-slate-900 border border-slate-800">
                   <div>
@@ -1706,7 +1722,7 @@ export const TeacherDashboard: React.FC = () => {
               <button
                 onClick={() => {
                   sounds.playTap();
-                  navigator.clipboard.writeText(selectedClassCode).then(() => {
+                  copyText(selectedClassCode).then(() => {
                     setCopiedCodeOnly(true);
                     setTimeout(() => setCopiedCodeOnly(false), 2000);
                   });
@@ -1718,6 +1734,9 @@ export const TeacherDashboard: React.FC = () => {
               </button>
             </div>
 
+            {/* 다른 기기 접속 가능 여부 자동 진단 */}
+            {!isDemoMode && <ConnectionCheck classCode={selectedClassCode} autoRun compact />}
+
             {/* Direct Participation Link */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
@@ -1728,19 +1747,14 @@ export const TeacherDashboard: React.FC = () => {
                 <input
                   type="text"
                   readOnly
-                  value={
-                    typeof window !== 'undefined'
-                      ? `${window.location.href.split('#')[0].split('?')[0]}?code=${selectedClassCode}`
-                      : `?code=${selectedClassCode}`
-                  }
+                  value={buildInviteLink(selectedClassCode)}
                   className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 select-all"
                 />
                 <button
                   onClick={() => {
                     sounds.playTap();
-                    const cleanBase = window.location.href.split('#')[0].split('?')[0];
-                    const link = `${cleanBase}?code=${selectedClassCode}`;
-                    navigator.clipboard.writeText(link).then(() => {
+                    const link = buildInviteLink(selectedClassCode);
+                    copyText(link).then(() => {
                       setCopiedInviteLink(true);
                       setTimeout(() => setCopiedInviteLink(false), 2000);
                     });
@@ -1757,8 +1771,7 @@ export const TeacherDashboard: React.FC = () => {
                 type="button"
                 onClick={() => {
                   sounds.playTap();
-                  const cleanBase = window.location.href.split('#')[0].split('?')[0];
-                  const link = `${cleanBase}?code=${selectedClassCode}`;
+                  const link = buildInviteLink(selectedClassCode);
                   window.open(link, '_blank');
                 }}
                 className="w-full py-2 rounded-xl bg-sky-900/40 hover:bg-sky-800/60 border border-sky-400/50 text-sky-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 mt-1"

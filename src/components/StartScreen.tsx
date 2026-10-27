@@ -18,6 +18,9 @@ interface StartScreenProps {
   savedProgressStats?: { stars: number; completedCount: number };
   onResumeGame?: () => void;
   initialClassCode?: string;
+  isJoiningClass?: boolean;
+  classJoinError?: string | null;
+  onClearClassJoinError?: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -32,10 +35,20 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   savedProgressStats,
   onResumeGame,
   initialClassCode = '',
+  isJoiningClass = false,
+  classJoinError = null,
+  onClearClassJoinError,
 }) => {
   const t = UI_TEXT[language];
   const [showProfileModal, setShowProfileModal] = useState<boolean>(() => Boolean(initialClassCode));
-  const [playerName, setPlayerName] = useState<string>('다윗');
+  const [playerName, setPlayerName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('PROMISE_LAND_LAST_PLAYER_NAME') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [nameError, setNameError] = useState<string | null>(null);
   const [selectedHeroId, setSelectedHeroId] = useState<CharacterId>('sailor_boy');
   const [selectedPetId, setSelectedPetId] = useState<string>('lamb');
   const [classCode, setClassCode] = useState<string>(() => {
@@ -47,7 +60,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       const cached = localStorage.getItem('PROMISE_LAND_LAST_CLASS_CODE');
       if (cached) return cached.trim().toUpperCase();
     } catch {}
-    return 'FAITH'; // Default demo class code for instant teacher-student sync test
+    return ''; // 코드는 선생님이 알려준 것만 사용 (기본값을 넣으면 엉뚱한 수업에 접속됨)
   });
 
   React.useEffect(() => {
@@ -65,13 +78,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const handleConfirmStart = (e: React.FormEvent) => {
     e.preventDefault();
     sounds.playTap();
-    const finalName = playerName.trim() || (language === 'ko' ? '믿음의 용사' : 'Faith Warrior');
     const cleanClassCode = classCode.trim().toUpperCase();
-    if (cleanClassCode) {
-      try {
-        localStorage.setItem('PROMISE_LAND_LAST_CLASS_CODE', cleanClassCode);
-      } catch {}
+    // 수업 참여 시 선생님 화면에서 누구인지 알 수 있도록 이름 필수
+    if (cleanClassCode && !playerName.trim()) {
+      setNameError('선생님 화면에 표시될 이름을 입력해 주세요.');
+      sounds.playWrong();
+      return;
     }
+    if (cleanClassCode && cleanClassCode.length !== 5) {
+      setNameError(`수업 코드는 5자리입니다. (현재 ${cleanClassCode.length}자리)`);
+      sounds.playWrong();
+      return;
+    }
+    setNameError(null);
+    const finalName = playerName.trim() || (language === 'ko' ? '믿음의 용사' : 'Faith Warrior');
+    try {
+      if (playerName.trim()) localStorage.setItem('PROMISE_LAND_LAST_PLAYER_NAME', playerName.trim());
+      if (cleanClassCode) localStorage.setItem('PROMISE_LAND_LAST_CLASS_CODE', cleanClassCode);
+    } catch {}
     onStartGame({
       name: finalName,
       fam: (selectedPetId === 'lamb' ? 'shalom' : selectedPetId === 'turtle' ? 'wisdom' : 'agape') as FamId,
@@ -532,7 +556,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   <input
                     type="text"
                     value={playerName}
-                    onChange={(e) => setPlayerName(e.target.value)}
+                    onChange={(e) => { setPlayerName(e.target.value.slice(0, 20)); setNameError(null); }}
                     placeholder="예: 다윗, 에스더, 바울, 요셉"
                     maxLength={12}
                     className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-xs font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -555,22 +579,19 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                     <input
                       type="text"
                       value={classCode}
-                      onChange={(e) => setClassCode(e.target.value.toUpperCase().slice(0, 5))}
-                      placeholder="예: FAITH"
+                      onChange={(e) => {
+                        setClassCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5));
+                        onClearClassJoinError?.();
+                      }}
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      autoComplete="off"
+                      spellCheck={false}
+                      inputMode="text"
+                      placeholder="선생님이 알려준 5자리"
                       maxLength={5}
                       className="flex-1 min-w-0 px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-sky-400/80 text-amber-300 font-mono text-sm font-black tracking-widest uppercase focus:ring-2 focus:ring-amber-400 focus:outline-none placeholder:text-slate-600 placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-xs"
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sounds.playTap();
-                        setClassCode('FAITH');
-                      }}
-                      className="px-2.5 py-1.5 rounded-xl bg-sky-900/60 border border-sky-400/60 text-[10px] text-sky-200 font-bold hover:bg-sky-800 transition whitespace-nowrap cursor-pointer"
-                      title="체험용 기본 수업 코드 FAITH 입력"
-                    >
-                      예시 'FAITH'
-                    </button>
                     {classCode && (
                       <button
                         type="button"
@@ -698,10 +719,42 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   </div>
                 </div>
 
+                {nameError && (
+                  <div className="rounded-xl border border-amber-400 bg-amber-950/70 px-3 py-2 text-xs font-bold text-amber-200" role="alert">
+                    ⚠️ {nameError}
+                  </div>
+                )}
+
+                {/* Class join error (shown before the game starts) */}
+                {classJoinError && (
+                  <div className="rounded-xl border-2 border-red-400 bg-red-950/80 p-3 text-xs text-red-100 leading-relaxed flex flex-col gap-2" role="alert">
+                    <div className="font-black text-red-200">⚠️ 수업에 접속하지 못했어요</div>
+                    <div>{classJoinError}</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playTap();
+                        onClearClassJoinError?.();
+                        onStartGame({
+                          name: playerName.trim() || (language === 'ko' ? '믿음의 용사' : 'Faith Warrior'),
+                          fam: (selectedPetId === 'lamb' ? 'shalom' : selectedPetId === 'turtle' ? 'wisdom' : 'agape') as FamId,
+                          characterId: selectedHeroId,
+                          language,
+                          classCode: undefined,
+                        });
+                      }}
+                      className="self-start px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-100 font-bold active:scale-95"
+                    >
+                      코드 없이 혼자 연습하기
+                    </button>
+                  </div>
+                )}
+
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  className={`rpg-btn-wood w-full py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer mt-1 shadow-lg transition-transform active:scale-95 ${
+                  disabled={isJoiningClass}
+                  className={`disabled:opacity-60 disabled:cursor-wait rpg-btn-wood w-full py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer mt-1 shadow-lg transition-transform active:scale-95 ${
                     classCode.trim().length === 5
                       ? 'border-emerald-400 bg-gradient-to-b from-[#1b5e35] to-[#0c351c] text-emerald-100 ring-2 ring-emerald-400/40'
                       : ''
@@ -709,7 +762,9 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>
-                    {classCode.trim().length === 5
+                    {isJoiningClass
+                      ? `[${classCode.trim()}] 수업에 접속하는 중...`
+                      : classCode.trim().length === 5
                       ? `[${classCode.trim()}] 수업 실시간 접속 & 항해 시작`
                       : '믿음의 항해 출발하기'}
                   </span>

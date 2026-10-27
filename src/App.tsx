@@ -121,6 +121,8 @@ export default function App() {
   const [isClassConnected, setIsClassConnected] = useState<boolean>(false);
   const [classroomToast, setClassroomToast] = useState<{ code: string; name: string } | null>(null);
   const [classroomError, setClassroomError] = useState<string | null>(null);
+  const [isJoiningClass, setIsJoiningClass] = useState<boolean>(false);
+  const [classJoinError, setClassJoinError] = useState<string | null>(null);
   const gameStartedAtRef = useRef<number>(Date.now());
   const resultRecordedRef = useRef<boolean>(false);
 
@@ -362,6 +364,23 @@ export default function App() {
 
   // Start Game Handler (Fresh Randomization & Cloud Classroom Join)
   const handleStartGame = async (profile: PlayerProfile) => {
+    // 수업 코드가 있으면 게임 시작 전에 먼저 선생님 수업에 접속 (실패하면 시작 화면에서 바로 안내)
+    if (profile.classCode) {
+      setIsJoiningClass(true);
+      setClassJoinError(null);
+      let res: Awaited<ReturnType<typeof joinClassroom>>;
+      try {
+        res = await joinClassroom(profile.classCode, profile, 0);
+      } catch (err) {
+        res = { success: false, error: '수업에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.' };
+      }
+      setIsJoiningClass(false);
+      if (!res.success) {
+        setClassJoinError(res.error || '수업에 연결하지 못했습니다.');
+        return;
+      }
+    }
+
     const freshQuests = getRandomizedQuests();
     setQuests(freshQuests);
     setPlayerProfile(profile);
@@ -376,14 +395,14 @@ export default function App() {
     setVerseReviewHistory({});
     setCurrentSectorId(1);
     setActiveModalQuestId(null);
-    setIsClassConnected(false);
+    setIsClassConnected(Boolean(profile.classCode));
+    setClassroomError(null);
     gameStartedAtRef.current = Date.now();
     resultRecordedRef.current = false;
     setGameState('playing');
 
-    // If student entered a classCode, register into classroom immediately
     if (profile.classCode) {
-      await connectToClass(profile, 0);
+      setClassroomToast({ code: profile.classCode, name: profile.name });
     }
   };
 
@@ -664,6 +683,9 @@ export default function App() {
               }
               onResumeGame={handleResumeGame}
               initialClassCode={initialClassCode}
+              isJoiningClass={isJoiningClass}
+              classJoinError={classJoinError}
+              onClearClassJoinError={() => setClassJoinError(null)}
             />
           </div>
         )}
