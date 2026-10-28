@@ -1,84 +1,29 @@
-export type Language = 'ko' | 'en';
-
 export type FamId = 'agape' | 'shalom' | 'wisdom';
-
-export interface FamInfo {
-  id: FamId;
-  name: { ko: string; en: string };
-  animal: { ko: string; en: string };
-  emoji: string;
-  badgeColor: string;
-  quote: { ko: string; en: string };
-  avatarBg: string;
-}
-
-export type QuestType = 'order' | 'single_blank' | 'multi_blank' | 'typing' | 'final_gate';
-
-export interface VerseQuest {
-  id: number; // 1 to 36
-  level: 1 | 2 | 3 | 4 | 5; // 1: Single Blank, 2: Word Order, 3: Multi Blank, 4: Typing, 5: Final
-  reference: { ko: string; en: string };
-  text: { ko: string; en: string };
-  objectName: { ko: string; en: string };
-  objectIcon: string;
-  sectorId: number; // 1: Crew Deck, 2: Nav Cabin, 3: Captain Room, 4: Relic Sanctuary, 5: Holy Gate
-  x: number; // percentage on map (0-100)
-  y: number; // percentage on map (0-100)
-  
-  // Level 1: Single Blank
-  singleBlank?: {
-    blankIndex: number;
-    options: { ko: string[]; en: string[] };
-    answer: { ko: string; en: string };
-    maskedText: { ko: string; en: string };
-  };
-
-  // Level 2: Word Order tokens
-  orderTokens?: {
-    ko: string[];
-    en: string[];
-  };
-
-  // Level 3: Multi Blank
-  multiBlank?: {
-    answers: { ko: string[]; en: string[] };
-    options: { ko: string[]; en: string[] };
-    template: { ko: string; en: string }; // contains __1__, __2__, __3__
-  };
-
-  // Level 4 & Final: Typing
-  typingTarget?: {
-    ko: string;
-    en: string;
-  };
-
-  // Hints
-  hintInitial: { ko: string; en: string }; // Light Magnifier
-  hintElimination: { ko: string; en: string }; // Truth Hourglass
-  hintWhisper: { ko: string; en: string }; // Fam Whisper
-}
-
-export interface LeaderboardEntry {
-  id: string;
-  playerName: string;
-  famId: FamId;
-  language: Language;
-  timeMs: number;
-  formattedTime: string;
-  completedAt: string;
-  hintsUsed: number;
-}
 
 export interface PlayerProfile {
   name: string;
+  /** 선생님이 알려준 5자리 수업 코드 (없으면 혼자 연습) */
+  classCode?: string;
+  /** 기록 호환용 (화면에서는 사용하지 않음) */
   fam: FamId;
   characterId?: string;
-  language: Language;
-  classCode?: string;
+}
+
+/** 이 기기에 저장되는 진행 상황 (이어하기용) */
+export interface PlayerProgress {
+  profile: PlayerProfile;
+  /** 말씀 번호 → 별(1~3) */
+  solved: Record<number, number>;
+  hintsUsed: number;
+  wrongCount: number;
+  wrongByVerse: Record<string, number>;
+  elapsedMs: number;
+  startedAt: number;
+  updatedAt: number;
 }
 
 export interface StudentSession {
-  id: string; // Firebase Auth UID or local random id
+  id: string;
   classCode: string;
   studentName: string;
   famId: FamId;
@@ -89,19 +34,27 @@ export interface StudentSession {
   totalStars: number;
   hintsUsed: number;
   wrongAnswersCount: number;
-  wrongQuestCounts?: { [questId: string]: number }; // questId -> wrong attempt count
+  wrongQuestCounts?: { [questId: string]: number };
   currentQuestId: number | null;
   elapsedTimeMs: number;
   joinedAt?: number;
-  lastActiveAt: number; // Unix timestamp ms
+  lastActiveAt: number;
   isOnline: boolean;
   isCompleted: boolean;
   completedAt?: number;
 }
 
+export interface Classroom {
+  code: string;
+  title: string;
+  teacherEmail: string;
+  createdAt: number;
+  isClosed?: boolean;
+}
+
 export type GameResultReason = 'completed' | 'quit';
 
-/** 수업 내 학생 1회 게임 결과 기록 (영구 보관용 히스토리) */
+/** 수업 내 학생 1회 게임 결과 기록 (영구 보관용) */
 export interface GameResult {
   id: string;
   classCode: string;
@@ -119,53 +72,4 @@ export interface GameResult {
   reason: GameResultReason;
   startedAt?: number;
   finishedAt: number;
-}
-
-export interface Classroom {
-  code: string; // 5-letter code (e.g., 'FAITH')
-  title: string;
-  teacherEmail: string;
-  createdAt: number;
-  isClosed?: boolean;
-}
-
-export interface QuestResult {
-  questId: number;
-  stars: 1 | 2 | 3;
-  hintsUsed: number;
-  solvedAt: number;
-}
-
-export interface VerseReviewRecord {
-  lastReviewedAt: string;
-  correctCount: number;
-  attemptCount: number;
-  bestStars: number;
-}
-
-export interface PlayerProgress {
-  userId?: string;
-  playerProfile: PlayerProfile;
-  quests: VerseQuest[];
-  solvedQuestIds: number[];
-  questStars: { [questId: number]: number };
-  hints: {
-    magnifier: number;
-    hourglass: number;
-    whisper: number;
-  };
-  totalHintsUsed: number;
-  elapsedTimeMs: number;
-  currentSectorId: number;
-  verseReviewHistory: { [questId: number]: VerseReviewRecord };
-  updatedAt: string;
-}
-
-export interface GameSector {
-  id: number;
-  name: { ko: string; en: string };
-  description: { ko: string; en: string };
-  themeBg: string;
-  icon: string;
-  questRange: [number, number]; // [startId, endId]
 }
