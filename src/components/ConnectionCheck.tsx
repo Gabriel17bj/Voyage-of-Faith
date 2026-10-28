@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
-import { diagnoseConnection, SyncDiagnosis } from '../utils/cloud';
+import { diagnoseConnection, getServerIdForLink, SyncDiagnosis } from '../utils/cloud';
 
 /** 학생에게 보낼 초대 링크의 기본 주소 (VITE_PUBLIC_APP_URL이 있으면 우선 사용) */
 export function getInviteBaseUrl(): string {
@@ -10,8 +10,10 @@ export function getInviteBaseUrl(): string {
   return window.location.origin + window.location.pathname;
 }
 
+/** 학생 초대 링크 (코드에 웹 앱 주소가 없으면 링크에 연결 정보를 함께 담음) */
 export function buildInviteLink(classCode: string): string {
-  return `${getInviteBaseUrl()}?code=${encodeURIComponent(classCode)}`;
+  const server = getServerIdForLink();
+  return `${getInviteBaseUrl()}?code=${encodeURIComponent(classCode)}${server ? `&s=${encodeURIComponent(server)}` : ''}`;
 }
 
 /** 다른 휴대폰에서 열 수 없는 주소인지 검사 */
@@ -57,16 +59,7 @@ export const ConnectionCheck: React.FC<ConnectionCheckProps> = ({ classCode, aut
     if (autoRun) run();
   }, [autoRun, classCode]);
 
-  const modeLabel =
-    result?.mode === 'gas'
-      ? '구글 스프레드시트'
-      : result?.mode === 'firebase'
-      ? 'Firebase'
-      : result?.mode === 'server'
-      ? '자체 서버'
-      : result?.mode === 'local'
-      ? '저장소 없음'
-      : '';
+  const modeLabel = result ? (result.mode === 'gas' ? '구글 스프레드시트' : '연결 안 됨') : '';
 
   return (
     <div className="rounded-2xl bg-white border border-line p-4 flex flex-col gap-3">

@@ -17,6 +17,7 @@ import {
   getGasSheetUrl,
   getTeacherKey,
   clearTeacherKey,
+  isServerBuiltIn,
   SyncMode,
 } from '../utils/cloud';
 import { TeacherSetup } from './teacher/TeacherSetup';
@@ -59,7 +60,16 @@ export const TeacherDashboard: React.FC = () => {
   if (syncMode === null) {
     return <div className="page bg-paper flex items-center justify-center text-muted">불러오는 중…</div>;
   }
-  if (syncMode === 'local') return <TeacherSetup />;
+  if (syncMode === 'local') {
+    return (
+      <TeacherSetup
+        onConnected={() => {
+          setSyncMode(null);
+          detectSyncMode().then(setSyncMode);
+        }}
+      />
+    );
+  }
   if (syncMode === 'gas' && !loggedIn) return <TeacherLogin onLoggedIn={() => setLoggedIn(true)} />;
 
   return (
@@ -280,6 +290,13 @@ const InviteCard: React.FC<{ code: string; closed: boolean }> = ({ code, closed 
           링크 복사
         </Button>
       </div>
+      {!isServerBuiltIn() && (
+        <div className="mt-3 text-left">
+          <Notice>
+            지금은 <b>링크 복사</b>로 보낸 초대 링크로 들어와야 연결돼요. (링크로 한 번 들어온 기기는 다음부터 코드만 넣어도 돼요)
+          </Notice>
+        </div>
+      )}
       {warning && (
         <div className="mt-3 text-left">
           <Notice tone="error">{warning}</Notice>

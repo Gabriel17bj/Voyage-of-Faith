@@ -1,30 +1,48 @@
 import React, { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import gasCode from '../../../gas/Code.gs?raw';
+import { SHEET_URL } from '../../config';
+import { connectServer } from '../../utils/cloud';
 import { copyText } from '../ConnectionCheck';
-import { Button, TopBar } from '../ui';
+import { Button, Notice, TopBar } from '../ui';
 
-/** 구글 시트가 아직 연결되지 않았을 때 보여 주는 설치 안내 */
-export const TeacherSetup: React.FC = () => {
+/** 구글 시트가 아직 연결되지 않았을 때: 3단계 연결 안내 */
+export const TeacherSetup: React.FC<{ onConnected: () => void }> = ({ onConnected }) => {
   const [copied, setCopied] = useState(false);
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const connect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await connectServer(url);
+    setBusy(false);
+    if (res.success) onConnected();
+    else setError(res.error || '연결하지 못했어요.');
+  };
 
   return (
     <div className="page bg-paper">
       <TopBar title="구글 시트 연결하기" onBack={() => (window.location.hash = '')} />
       <main className="mx-auto max-w-lg px-5 py-5 flex flex-col gap-4">
         <p className="px-1 leading-relaxed text-muted">
-          학생 기록은 선생님의 <strong className="text-ink">구글 스프레드시트</strong>에 저장돼요. 처음 한 번만 아래 순서대로 연결해 주세요. (약 5분)
+          학생 기록은 선생님의 <strong className="text-ink">구글 스프레드시트</strong>에 저장돼요. 처음 한 번만 연결하면 돼요.
         </p>
 
-        <Step n={1} title="스프레드시트 만들기">
-          <a href="https://sheets.new" target="_blank" rel="noopener noreferrer" className="font-bold text-brand underline underline-offset-4">
-            sheets.new
-          </a>
-          에서 새 시트를 만들고, 위쪽 메뉴 <b>확장 프로그램 → Apps Script</b>를 여세요.
-        </Step>
-
-        <Step n={2} title="코드 붙여넣기">
-          <p>원래 있던 내용을 모두 지우고 아래 코드를 붙여넣은 뒤 저장(💾)하세요.</p>
+        <Step n={1} title="시트에 코드 붙여넣기">
+          <ol className="list-decimal pl-5 leading-relaxed">
+            <li>
+              <a href={SHEET_URL} target="_blank" rel="noopener noreferrer" className="font-bold text-brand underline underline-offset-4 inline-flex items-center gap-1">
+                내 스프레드시트 열기 <ExternalLink className="w-4 h-4" />
+              </a>
+            </li>
+            <li>
+              위쪽 메뉴 <b>확장 프로그램 → Apps Script</b>
+            </li>
+            <li>원래 있던 내용을 모두 지우고, 아래 버튼으로 복사한 코드를 붙여넣고 저장(💾)</li>
+          </ol>
           <Button
             variant="secondary"
             block
@@ -40,9 +58,9 @@ export const TeacherSetup: React.FC = () => {
           </Button>
         </Step>
 
-        <Step n={3} title="웹 앱으로 배포하기">
+        <Step n={2} title="웹 앱으로 배포하기">
           <p>
-            오른쪽 위 <b>배포 → 새 배포 → ⚙️ → 웹 앱</b>
+            Apps Script 오른쪽 위 <b>배포 → 새 배포 → ⚙️ → 웹 앱</b>
           </p>
           <ul className="mt-2 list-disc pl-5 text-sm leading-relaxed">
             <li>
@@ -52,31 +70,32 @@ export const TeacherSetup: React.FC = () => {
               액세스 권한이 있는 사용자: <b>모든 사용자</b>
             </li>
           </ul>
-          <p className="mt-2 text-sm text-muted">권한 승인 화면이 나오면 계정 선택 → 고급 → 이동 → 허용을 누르세요.</p>
+          <p className="mt-2 text-sm text-muted">
+            [배포]를 누르고 권한 승인 화면이 나오면 계정 선택 → <b>고급</b> → <b>이동</b> → <b>허용</b>. 마지막 화면의 <b>웹 앱 URL</b>을 복사하세요.
+          </p>
         </Step>
 
-        <Step n={4} title="비밀번호와 수업 코드 만들기">
-          <p>
-            스프레드시트 화면을 새로고침하면 위쪽에 <b>[믿음의 항해]</b> 메뉴가 생겨요.
+        <Step n={3} title="웹 앱 주소 붙여넣기">
+          <form onSubmit={connect} className="flex flex-col gap-3">
+            <input
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                setError(null);
+              }}
+              placeholder="https://script.google.com/macros/s/…/exec"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-13 min-h-[52px] px-4 rounded-xl border border-line text-sm focus:outline-none focus:border-brand"
+            />
+            {error && <Notice tone="error">{error}</Notice>}
+            <Button type="submit" block disabled={busy || !url.trim()}>
+              {busy ? '확인 중…' : '연결하기'}
+            </Button>
+          </form>
+          <p className="mt-3 text-sm text-muted">
+            다음은 시트를 새로고침해서 생긴 <b>[믿음의 항해]</b> 메뉴에서 <b>교사 비밀번호 정하기</b>를 하면 끝이에요.
           </p>
-          <ul className="mt-2 list-disc pl-5 text-sm leading-relaxed">
-            <li>
-              <b>교사 비밀번호 정하기</b> → 이 선생님 화면 로그인에 사용
-            </li>
-            <li>
-              <b>새 수업 만들기</b> → 학생에게 알려 줄 5자리 수업 코드
-            </li>
-          </ul>
-        </Step>
-
-        <Step n={5} title="게임에 주소 넣기">
-          <p>
-            메뉴 <b>[믿음의 항해 → 웹 앱 주소 보기]</b>의 주소(…/exec)를 복사해서 게임 코드의 <code className="px-1 rounded bg-slate-100">src/config.ts</code> 따옴표 안에 붙여넣고 다시 배포하세요.
-          </p>
-          <pre className="mt-2 rounded-lg bg-slate-900 text-slate-100 p-3 text-xs overflow-x-auto">
-            {`export const GAS_WEB_APP_URL =\n  'https://script.google.com/macros/s/…/exec';`}
-          </pre>
-          <p className="mt-2 text-sm text-muted">Vercel 환경변수 VITE_GAS_URL 로 넣어도 돼요. 넣은 뒤에는 꼭 다시 배포(Redeploy)하세요.</p>
         </Step>
       </main>
     </div>

@@ -19,6 +19,19 @@
  * 학생은 이름 + 수업 코드만으로 참여하고, 선생님 기능(목록 보기·수업 관리)은 교사 비밀번호가 필요합니다.
  */
 
+// 기록을 저장할 스프레드시트 (선생님 시트)
+// 시트에서 [확장 프로그램 → Apps Script]로 열었다면 그 시트를 그대로 쓰고,
+// script.google.com 에서 따로 만들었다면 아래 ID의 시트를 씁니다.
+var SPREADSHEET_ID = '1aHq_nl4P0pMWBKHdSI_S_BOoFdVs7dZhk03npbWadBc';
+
+function ss_() {
+  var active = null;
+  try {
+    active = SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {}
+  return active || SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
 var SHEET_DEFS = {
   classrooms: {
     name: '수업',
@@ -135,7 +148,7 @@ function doPost(e) {
 
     switch (body.action) {
       case 'teacherLogin':
-        return out_({ success: true, sheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl() });
+        return out_({ success: true, sheetUrl: ss_().getUrl() });
       case 'classrooms':
         return out_({ success: true, classrooms: readAll_('classrooms').filter(function (c) { return /^[A-Z0-9]{5}$/.test(c.code); }) });
       case 'students':
@@ -286,7 +299,7 @@ function setClosed_(code, isClosed) {
 
 function sheet_(key) {
   var def = SHEET_DEFS[key];
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = ss_();
   var sh = ss.getSheetByName(def.name);
   if (!sh) {
     sh = ss.insertSheet(def.name);
@@ -400,7 +413,7 @@ function onOpen() {
     .addItem('새 수업 만들기', 'menuCreateClass')
     .addItem('교사 비밀번호 정하기', 'menuSetPassword')
     .addSeparator()
-    .addItem('웹 앱 주소 보기', 'menuShowUrl')
+    .addItem('게임과 연결하기 (웹 앱 주소)', 'menuShowUrl')
     .addToUi();
   ensureAllSheets_();
 }
@@ -437,11 +450,26 @@ function menuShowUrl() {
   try {
     url = ScriptApp.getService().getUrl() || '';
   } catch (e) {}
-  SpreadsheetApp.getUi().alert(
-    '웹 앱 주소',
-    url ? url + '\n\n이 주소를 게임의 src/config.ts 에 넣어 주세요.' : "아직 배포하지 않았어요. Apps Script 화면에서 [배포 → 새 배포 → 웹 앱]으로 먼저 배포해 주세요.",
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+  var ui = SpreadsheetApp.getUi();
+  if (!url) {
+    ui.alert(
+      '아직 배포하지 않았어요',
+      'Apps Script 화면 오른쪽 위 [배포 → 새 배포 → ⚙️ 웹 앱]\n· 실행: 나\n· 액세스 권한: 모든 사용자\n로 배포한 뒤 다시 눌러 주세요.',
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+  var html = HtmlService.createHtmlOutput(
+    '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
+      '<p><b>아래 주소를 복사해서</b> 게임의 <b>선생님 화면 → 웹 앱 주소 붙여넣기</b> 칸에 넣으세요.</p>' +
+      '<textarea id="u" readonly style="width:100%;height:70px;font-size:12px">' + url + '</textarea>' +
+      '<button onclick="var t=document.getElementById(\'u\');t.select();document.execCommand(\'copy\');this.innerText=\'복사했어요\'" ' +
+      'style="margin-top:8px;padding:10px 16px;font-size:14px;font-weight:bold;background:#2563eb;color:#fff;border:0;border-radius:8px;cursor:pointer">주소 복사</button>' +
+      '</div>'
+  )
+    .setWidth(460)
+    .setHeight(230);
+  ui.showModalDialog(html, '게임과 연결하기');
 }
 
 function getPassword_() {
