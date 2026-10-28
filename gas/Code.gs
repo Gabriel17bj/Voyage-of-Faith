@@ -1,18 +1,22 @@
 /**
- * PROMISE LAND : 믿음의 항해 — 구글 스프레드시트 기록 서버 (Google Apps Script)
+ * 믿음의 항해 — 구글 스프레드시트 기록 서버 (Google Apps Script)
  *
- * 설치 방법 (README의 "구글 스프레드시트(GAS) 연결" 참고)
+ * 설치 (자세한 내용은 README 또는 게임의 '선생님 화면' 안내 참고)
  *  1. 새 구글 스프레드시트 > 확장 프로그램 > Apps Script
  *  2. 이 파일 내용을 Code.gs에 전부 붙여넣고 저장
  *  3. 배포 > 새 배포 > 유형: 웹 앱
  *       - 다음 사용자 인증 정보로 실행: 나
  *       - 액세스 권한이 있는 사용자: 모든 사용자
- *  4. 발급된 웹 앱 URL(https://script.google.com/macros/s/.../exec)을 게임 설정에 입력
+ *  4. 스프레드시트를 새로고침하면 위쪽에 [믿음의 항해] 메뉴가 생김
+ *       - 교사 비밀번호 정하기 → 선생님 화면 로그인에 사용
+ *       - 새 수업 만들기       → 학생에게 알려 줄 5자리 수업 코드 생성
  *
- * 시트 구성 (처음 요청 시 자동 생성)
- *  - 수업      : 교사가 만든 수업 코드 목록
- *  - 학생현황  : 학생별 실시간 진행 상황 (한 학생 = 한 줄, 계속 갱신)
- *  - 게임기록  : 완주/중도 종료 결과 (추가만 됨, 앱에서 삭제 불가 → 영구 기록)
+ * 시트 구성 (자동 생성)
+ *  - 수업      : 수업 코드 목록 (이 탭에 직접 코드를 적어도 됨: 영문/숫자 5자리)
+ *  - 학생현황  : 학생별 진행 상황 (한 학생 = 한 줄, 계속 갱신)
+ *  - 게임기록  : 완주/중간 종료 결과 (추가만 됨 → 영구 기록)
+ *
+ * 학생은 이름 + 수업 코드만으로 참여하고, 선생님 기능(목록 보기·수업 관리)은 교사 비밀번호가 필요합니다.
  */
 
 var SHEET_DEFS = {
@@ -80,24 +84,25 @@ var SHEET_DEFS = {
 // ---------------------------------------------------------------------------
 
 function doGet(e) {
-  var p = (e && e.parameter) || {};
   try {
-    switch (p.action) {
-      case 'classrooms':
-        return out_({ success: true, classrooms: readAll_('classrooms') });
-      case 'students':
-        return out_({ success: true, students: readAll_('students').filter(byCode_(p.code)) });
-      case 'results':
-        return out_({ success: true, results: readAll_('results').filter(byCode_(p.code)) });
-      case 'health':
-      default:
-        ensureAllSheets_();
-        return out_({ success: true, ok: true, mode: 'gas', sheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl() });
-    }
+    ensureAllSheets_();
+    return out_({ success: true, ok: true, mode: 'gas', hasPassword: !!getPassword_() });
   } catch (err) {
     return fail_(err);
   }
 }
+
+// 선생님만 쓸 수 있는 요청 (교사 비밀번호 필요)
+var TEACHER_ACTIONS = {
+  teacherLogin: true,
+  classrooms: true,
+  students: true,
+  results: true,
+  createClassroom: true,
+  setClosed: true,
+  resetStudents: true,
+  deleteClassroom: true,
+};
 
 function doPost(e) {
   var body;
@@ -116,7 +121,27 @@ function doPost(e) {
 
   try {
     var code = clean_(body.classCode || body.code);
+
+    if (TEACHER_ACTIONS[body.action]) {
+      var pw = getPassword_();
+      if (!pw) {
+        return out_({ success: false, code: 'no-password', error: "아직 교사 비밀번호가 없습니다. 구글 시트 위쪽 메뉴 [믿음의 항해 → 교사 비밀번호 정하기]에서 먼저 정해 주세요." });
+      }
+      if (String(body.key || '') !== pw) {
+        Utilities.sleep(800); // 비밀번호 무작위 대입 방지
+        return out_({ success: false, code: 'unauthorized', error: '교사 비밀번호가 맞지 않습니다.' });
+      }
+    }
+
     switch (body.action) {
+      case 'teacherLogin':
+        return out_({ success: true, sheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl() });
+      case 'classrooms':
+        return out_({ success: true, classrooms: readAll_('classrooms').filter(function (c) { return /^[A-Z0-9]{5}$/.test(c.code); }) });
+      case 'students':
+        return out_({ success: true, students: readAll_('students').filter(byCode_(code)) });
+      case 'results':
+        return out_({ success: true, results: readAll_('results').filter(byCode_(code)) });
       case 'createClassroom':
         return out_(createClassroom_(body));
       case 'join':
@@ -156,7 +181,7 @@ function doPost(e) {
 function createClassroom_(body) {
   var code = clean_(body.code);
   if (!/^[A-Z0-9]{5}$/.test(code)) return { success: false, code: 'bad-request', error: '수업 코드는 영문/숫자 5자리여야 합니다.' };
-  if (findRow_('classrooms', function (r) { return r.code === code; })) {
+  if (findRow_('classrooms', function (r) { return clean_(r.code) === code; })) {
     return { success: false, code: 'exists', error: '이미 사용 중인 수업 코드 [' + code + '] 입니다.' };
   }
   var classroom = {
@@ -171,7 +196,7 @@ function createClassroom_(body) {
 }
 
 function join_(code, body) {
-  var cls = findRow_('classrooms', function (r) { return r.code === code; });
+  var cls = findRow_('classrooms', function (r) { return clean_(r.code) === code; });
   if (!cls) {
     return { success: false, code: 'class-not-found', error: '수업 코드 [' + code + ']를 찾을 수 없습니다. 선생님이 알려준 코드를 다시 확인하세요. (0과 O, 1과 I 구분)' };
   }
@@ -248,7 +273,7 @@ function appendResult_(code, record) {
 }
 
 function setClosed_(code, isClosed) {
-  var cls = findRow_('classrooms', function (r) { return r.code === code; });
+  var cls = findRow_('classrooms', function (r) { return clean_(r.code) === code; });
   if (!cls) return { success: false, code: 'class-not-found', error: '수업을 찾을 수 없습니다.' };
   cls.obj.isClosed = isClosed;
   writeObj_('classrooms', cls.row, cls.obj);
@@ -344,6 +369,7 @@ function rowToObj_(def, row) {
         obj[key] = key === 'solvedQuestIds' ? [] : {};
       }
     } else obj[key] = v === null || v === undefined ? '' : String(v);
+    if (key === 'code' || key === 'classCode') obj[key] = clean_(obj[key]);
   }
   return obj;
 }
@@ -362,6 +388,71 @@ function objToRow_(def, obj) {
     }
     return v;
   });
+}
+
+// ---------------------------------------------------------------------------
+// 구글 시트 메뉴 (시트 소유자인 선생님만 사용)
+// ---------------------------------------------------------------------------
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('믿음의 항해')
+    .addItem('새 수업 만들기', 'menuCreateClass')
+    .addItem('교사 비밀번호 정하기', 'menuSetPassword')
+    .addSeparator()
+    .addItem('웹 앱 주소 보기', 'menuShowUrl')
+    .addToUi();
+  ensureAllSheets_();
+}
+
+function menuCreateClass() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt('새 수업 만들기', '수업 이름을 적어 주세요. (예: 초등부 3반)', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var title = String(res.getResponseText() || '').trim() || '새 수업';
+  var code = '';
+  for (var i = 0; i < 20 && !code; i++) {
+    var c = randomCode_();
+    if (!findRow_('classrooms', function (r) { return clean_(r.code) === c; })) code = c;
+  }
+  appendObj_('classrooms', { code: code, title: title.slice(0, 80), teacherEmail: Session.getActiveUser().getEmail() || '', createdAt: Date.now(), isClosed: false });
+  ui.alert('수업을 만들었어요', '수업 코드: ' + code + '\n\n학생들은 게임 첫 화면에서 이름과 이 코드를 입력하면 들어올 수 있어요.', ui.ButtonSet.OK);
+}
+
+function menuSetPassword() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt('교사 비밀번호 정하기', '선생님 화면에 로그인할 비밀번호를 적어 주세요. (4자 이상)', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var pw = String(res.getResponseText() || '').trim();
+  if (pw.length < 4) {
+    ui.alert('비밀번호는 4자 이상이어야 해요.');
+    return;
+  }
+  PropertiesService.getScriptProperties().setProperty('TEACHER_PASSWORD', pw);
+  ui.alert('비밀번호를 저장했어요. 게임의 [선생님 화면]에서 이 비밀번호로 로그인하세요.');
+}
+
+function menuShowUrl() {
+  var url = '';
+  try {
+    url = ScriptApp.getService().getUrl() || '';
+  } catch (e) {}
+  SpreadsheetApp.getUi().alert(
+    '웹 앱 주소',
+    url ? url + '\n\n이 주소를 게임의 src/config.ts 에 넣어 주세요.' : "아직 배포하지 않았어요. Apps Script 화면에서 [배포 → 새 배포 → 웹 앱]으로 먼저 배포해 주세요.",
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+function getPassword_() {
+  return PropertiesService.getScriptProperties().getProperty('TEACHER_PASSWORD') || '';
+}
+
+function randomCode_() {
+  var chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  var out = '';
+  for (var i = 0; i < 5; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+  return out;
 }
 
 function byCode_(code, field) {

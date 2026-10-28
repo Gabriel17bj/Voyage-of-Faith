@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayerProfile, PlayerProgress } from './types';
-import { StageId, TOTAL_VERSES, VERSES, nextVerse } from './data/verses';
+import { StageId, TOTAL_VERSES, VERSES, nextVerse, versesOfStage } from './data/verses';
 import { calculateScore } from './utils/score';
 import { sounds } from './utils/audio';
 import { clearSavedProgress, loadSavedProgress, saveSavedProgress } from './utils/storage';
@@ -15,21 +15,30 @@ import {
 } from './utils/cloud';
 import { HomePage } from './components/student/HomePage';
 import { HowToPage } from './components/student/HowToPage';
-import { StagesPage } from './components/student/StagesPage';
-import { StagePage } from './components/student/StagePage';
+import { MapPage } from './components/student/MapPage';
 import { VersePage } from './components/student/VersePage';
+import { StageClearPage } from './components/student/StageClearPage';
 import { DonePage } from './components/student/DonePage';
 import { TeacherDashboard } from './components/TeacherDashboard';
 
 type Page =
   | { name: 'home' }
   | { name: 'howto' }
-  | { name: 'stages' }
-  | { name: 'stage'; stage: StageId }
+  | { name: 'map' }
   | { name: 'verse'; id: number }
+  | { name: 'stageClear'; stage: StageId }
   | { name: 'done' };
 
-const PLAYING_PAGES: Page['name'][] = ['stages', 'stage', 'verse'];
+const PLAYING_PAGES: Page['name'][] = ['map', 'verse', 'stageClear'];
+
+/** 모든 말씀을 푼 단계 목록 */
+function clearedStages(solved: Record<number, number>): Set<number> {
+  const set = new Set<number>();
+  for (let s = 1; s <= 5; s++) {
+    if (versesOfStage(s as StageId).every((v) => solved[v.id])) set.add(s);
+  }
+  return set;
+}
 
 /** 링크의 ?code=ABCDE 읽기 */
 function readCodeFromUrl(): string {
@@ -202,6 +211,7 @@ function StudentApp() {
     runningSinceRef.current = null;
     startedAtRef.current = Date.now();
     lastRecordedRef.current = -1;
+    celebratedRef.current = new Set();
   };
 
   const confirmOverwrite = () => {
@@ -233,7 +243,7 @@ function StudentApp() {
     if (await connect(p)) {
       clearSavedProgress();
       resetProgress(p);
-      setPage({ name: 'stages' });
+      setPage({ name: 'map' });
     }
   };
 
@@ -243,7 +253,7 @@ function StudentApp() {
     setJoinError(null);
     setClassConnected(false);
     resetProgress({ name, fam: 'agape' });
-    setPage({ name: 'stages' });
+    setPage({ name: 'map' });
   };
 
   const handleResume = async () => {
@@ -257,9 +267,10 @@ function StudentApp() {
     runningSinceRef.current = null;
     startedAtRef.current = saved.startedAt || Date.now();
     lastRecordedRef.current = -1;
+    celebratedRef.current = clearedStages(saved.solved);
     setClassConnected(false);
     if (saved.profile.classCode) await connect(saved.profile);
-    setPage({ name: 'stages' });
+    setPage({ name: 'map' });
   };
 
   const handleQuit = () => {
@@ -268,6 +279,8 @@ function StudentApp() {
   };
 
   // ── 말씀 풀이 ──
+  /** 이미 축하 화면을 보여 준 단계 */
+  const celebratedRef = useRef<Set<number>>(new Set());
   const openVerse = (id: number) => setPage({ name: 'verse', id });
 
   const onSolved = (id: number, stars: number) => {
@@ -281,8 +294,14 @@ function StudentApp() {
 
   const goNext = () => {
     const next = nextVerse(solved);
-    if (!next) setPage({ name: 'done' });
-    else openVerse(next.id);
+    if (!next) return setPage({ name: 'done' });
+    // 방금 한 단계를 모두 마쳤으면 축하 화면
+    const newlyCleared = [...clearedStages(solved)].find((s) => !celebratedRef.current.has(s));
+    if (newlyCleared) {
+      celebratedRef.current.add(newlyCleared);
+      return setPage({ name: 'stageClear', stage: newlyCleared as StageId });
+    }
+    openVerse(next.id);
   };
 
   // ── 화면 ──
@@ -290,9 +309,9 @@ function StudentApp() {
     case 'howto':
       return <HowToPage onBack={() => setPage({ name: 'home' })} />;
 
-    case 'stages':
+    case 'map':
       return (
-        <StagesPage
+        <MapPage
           name={profile?.name || ''}
           classCode={profile?.classCode}
           classConnected={classConnected}
@@ -300,23 +319,22 @@ function StudentApp() {
           score={score}
           muted={muted}
           onToggleMute={() => setMuted(sounds.toggleMute())}
-          onOpenStage={(stage) => setPage({ name: 'stage', stage })}
           onOpenVerse={openVerse}
           onQuit={handleQuit}
           onReconnect={() => profile && connect(profile)}
         />
       );
 
-    case 'stage':
-      return <StagePage stage={page.stage} solved={solved} onBack={() => setPage({ name: 'stages' })} onOpenVerse={openVerse} />;
-
     case 'verse': {
       const verse = VERSES.find((v) => v.id === page.id)!;
+      const stageList = versesOfStage(verse.stage);
       return (
         <VersePage
           verse={verse}
           alreadyStars={solved[verse.id] || 0}
-          onBack={() => setPage({ name: 'stage', stage: verse.stage })}
+          stageDone={stageList.filter((v) => solved[v.id]).length}
+          stageTotal={stageList.length}
+          onBack={() => setPage({ name: 'map' })}
           onHint={() => setHintsUsed((n) => n + 1)}
           onWrong={() => onWrong(verse.id)}
           onSolved={(stars) => onSolved(verse.id, stars)}
@@ -324,6 +342,20 @@ function StudentApp() {
         />
       );
     }
+
+    case 'stageClear':
+      return (
+        <StageClearPage
+          stage={page.stage}
+          solved={solved}
+          onContinue={() => {
+            const next = nextVerse(solved);
+            if (next) openVerse(next.id);
+            else setPage({ name: 'done' });
+          }}
+          onMap={() => setPage({ name: 'map' })}
+        />
+      );
 
     case 'done':
       return (
@@ -336,7 +368,7 @@ function StudentApp() {
           wrongCount={wrongCount}
           classCode={classConnected ? classCode : undefined}
           onHome={() => setPage({ name: 'home' })}
-          onReview={() => setPage({ name: 'stages' })}
+          onReview={() => setPage({ name: 'map' })}
         />
       );
 

@@ -55,7 +55,8 @@ export function getGasUrlPreview(): string {
 export async function getGasSheetUrl(): Promise<string | null> {
   if (!isGasConfigured()) return null;
   try {
-    const data = await withTimeout(gasGet<{ sheetUrl?: string }>({ action: 'health' }), 20000);
+    if (!getTeacherKey()) return null;
+    const data = await withTimeout(gasTeacher<{ sheetUrl?: string }>({ action: 'teacherLogin' }), 20000);
     return data.sheetUrl || null;
   } catch {
     return null;
@@ -332,7 +333,7 @@ function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
 export function describeSyncError(err: any): string {
   const code = String(err?.code || '');
   const msg = String(err?.message || '');
-  if (code === 'class-not-found' || code === 'closed' || code === 'exists') return msg;
+  if (code === 'class-not-found' || code === 'closed' || code === 'exists' || code === 'unauthorized' || code === 'no-password') return msg;
   if (code === 'busy') return '접속하는 학생이 많아 잠시 밀렸습니다. 몇 초 뒤 다시 시도해 주세요.';
   if (code === 'gas-unreachable') {
     return '구글 스프레드시트 서버에 연결할 수 없습니다. (교사: Apps Script를 "웹 앱"으로 배포하고 액세스 권한을 "모든 사용자"로 설정했는지, 주소가 /exec 로 끝나는지 확인)';
@@ -419,6 +420,49 @@ async function gasPost<T = any>(body: Record<string, unknown>): Promise<T> {
     throw Object.assign(new Error('unreachable'), { code: 'gas-unreachable' });
   }
   return gasParse<T>(res);
+}
+
+// ── 교사 비밀번호 (스프레드시트 모드에서 선생님 기능에 필요) ──
+const TEACHER_KEY_STORAGE = 'PROMISE_LAND_TEACHER_KEY';
+
+export function getTeacherKey(): string {
+  try {
+    return localStorage.getItem(TEACHER_KEY_STORAGE) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function clearTeacherKey() {
+  try {
+    localStorage.removeItem(TEACHER_KEY_STORAGE);
+  } catch {}
+  notifySyncEvent('TEACHER_LOGOUT', {});
+}
+
+/** 선생님 로그인 (성공 시 이 기기에 기억) */
+export async function teacherLogin(password: string): Promise<{ success: boolean; error?: string; sheetUrl?: string }> {
+  const mode = await detectSyncMode();
+  if (mode !== 'gas') return { success: true };
+  try {
+    const data = await withTimeout(gasPost<{ sheetUrl?: string }>({ action: 'teacherLogin', key: password }), 20000);
+    try {
+      localStorage.setItem(TEACHER_KEY_STORAGE, password);
+    } catch {}
+    return { success: true, sheetUrl: data.sheetUrl };
+  } catch (err: any) {
+    return { success: false, error: err?.code === 'unauthorized' || err?.code === 'no-password' ? err.message : describeSyncError(err) };
+  }
+}
+
+/** 선생님 전용 요청 (비밀번호가 틀리면 로그아웃 처리) */
+async function gasTeacher<T = any>(body: Record<string, unknown>): Promise<T> {
+  try {
+    return await gasPost<T>({ ...body, key: getTeacherKey() });
+  } catch (err: any) {
+    if (err?.code === 'unauthorized' || err?.code === 'no-password') clearTeacherKey();
+    throw err;
+  }
 }
 
 /** 일정 간격으로 불러오기 (탭이 숨겨져 있으면 쉬어서 Apps Script 사용량 절약) */
@@ -978,7 +1022,7 @@ export function subscribeClassResults(
       );
     } else if (mode === 'gas') {
       cleanup = startPolling(async () => {
-        const data = await gasGet<{ results: GameResult[] }>({ action: 'results', code: cleanCode });
+        const data = await gasTeacher<{ results: GameResult[] }>({ action: 'results', classCode: cleanCode });
         if (!stopped) onUpdate(sortResults(data.results || []));
       }, 15000);
     } else if (mode === 'server') {
@@ -1033,8 +1077,8 @@ export async function diagnoseConnection(classCode?: string): Promise<SyncDiagno
   if (mode === 'gas') {
     let sheetUrl: string | undefined;
     try {
-      const health = await withTimeout(gasGet<{ sheetUrl?: string }>({ action: 'health' }), 20000);
-      sheetUrl = health.sheetUrl;
+      await withTimeout(gasGet({ action: 'health' }), 20000);
+      sheetUrl = (await getGasSheetUrl()) || undefined;
       steps.push({ label: '스프레드시트 서버 연결', ok: true, detail: `웹 앱 응답 정상 (${getGasUrlPreview()})` });
     } catch (e) {
       steps.push({ label: '스프레드시트 서버 연결', ok: false, detail: describeSyncError(e) });
@@ -1043,7 +1087,7 @@ export async function diagnoseConnection(classCode?: string): Promise<SyncDiagno
     const code = (classCode || '').trim().toUpperCase();
     if (code) {
       try {
-        const data = await withTimeout(gasGet<{ classrooms: Classroom[] }>({ action: 'classrooms' }), 20000);
+        const data = await withTimeout(gasTeacher<{ classrooms: Classroom[] }>({ action: 'classrooms' }), 20000);
         const exists = (data.classrooms || []).some((c) => c.code === code);
         steps.push(
           exists
@@ -1149,7 +1193,7 @@ export function subscribeClassStudents(
     } else if (mode === 'gas') {
       cleanups.push(
         startPolling(async () => {
-          const data = await gasGet<{ students: StudentSession[] }>({ action: 'students', code: cleanCode });
+          const data = await gasTeacher<{ students: StudentSession[] }>({ action: 'students', classCode: cleanCode });
           if (Array.isArray(data.students)) emit(data.students);
         }, 5000)
       );
@@ -1223,7 +1267,7 @@ export async function createClassroom(
       await setDoc(classRef, newClass);
     } else if (mode === 'gas') {
       await withTimeout(
-        gasPost({ action: 'createClassroom', code: cleanCode, title: newClass.title, teacherEmail: newClass.teacherEmail }),
+        gasTeacher({ action: 'createClassroom', code: cleanCode, title: newClass.title, teacherEmail: newClass.teacherEmail }),
         20000
       );
     } else if (mode === 'server') {
@@ -1263,7 +1307,7 @@ export function subscribeTeacherClassrooms(
         email === 'teacher@promise.land'
     );
     const result = matching.length > 0 ? matching : all;
-    return [...result].sort((a, b) => b.createdAt - a.createdAt);
+    return [...result].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   };
 
   let stopped = false;
@@ -1280,7 +1324,7 @@ export function subscribeTeacherClassrooms(
       );
     } else if (mode === 'gas') {
       cleanup = startPolling(async () => {
-        const data = await gasGet<{ classrooms: Classroom[] }>({ action: 'classrooms' });
+        const data = await gasTeacher<{ classrooms: Classroom[] }>({ action: 'classrooms' });
         if (!stopped && Array.isArray(data.classrooms)) onUpdate(filterAndSort(data.classrooms));
       }, 10000);
     } else if (mode === 'server') {
@@ -1316,7 +1360,7 @@ export async function setClassroomClosed(classCode: string, isClosed: boolean): 
     if (mode === 'firebase' && db) {
       await updateDoc(doc(db, 'classrooms', cleanCode), { isClosed });
     } else if (mode === 'gas') {
-      await gasPost({ action: 'setClosed', classCode: cleanCode, isClosed });
+      await gasTeacher({ action: 'setClosed', classCode: cleanCode, isClosed });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/close`, {
         method: 'POST',
@@ -1351,7 +1395,7 @@ export async function resetClassroomStudents(classCode: string): Promise<void> {
     if (mode === 'firebase' && db) {
       await deleteFirestoreCollection(cleanCode, 'students');
     } else if (mode === 'gas') {
-      await gasPost({ action: 'resetStudents', classCode: cleanCode });
+      await gasTeacher({ action: 'resetStudents', classCode: cleanCode });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}/reset`, { method: 'POST' });
     } else {
@@ -1403,7 +1447,7 @@ export async function deleteClassroom(classCode: string): Promise<void> {
       await deleteDoc(doc(db, 'classrooms', cleanCode));
     } else if (mode === 'gas') {
       // 학생 현황과 수업만 삭제, 게임기록 시트는 보존
-      await gasPost({ action: 'deleteClassroom', classCode: cleanCode });
+      await gasTeacher({ action: 'deleteClassroom', classCode: cleanCode });
     } else if (mode === 'server') {
       await apiJson(`/api/classrooms/${cleanCode}`, { method: 'DELETE' });
     } else {
