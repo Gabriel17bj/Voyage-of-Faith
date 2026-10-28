@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, Copy, Check, Download } from 'lucide-react';
+import { ChevronRight, Copy, Check, Download, LogOut } from 'lucide-react';
 import { Classroom, GameResult, StudentSession } from '../types';
 import { TOTAL_VERSES } from '../data/verses';
 import {
@@ -15,8 +15,12 @@ import {
   generateClassCode,
   detectSyncMode,
   getGasSheetUrl,
+  getTeacherKey,
+  clearTeacherKey,
   SyncMode,
 } from '../utils/cloud';
+import { TeacherSetup } from './teacher/TeacherSetup';
+import { TeacherLogin } from './teacher/TeacherLogin';
 import { ConnectionCheck, buildInviteLink, copyText, getInviteUrlWarning } from './ConnectionCheck';
 import { Button, Notice, ProgressBar, TopBar, formatDuration } from './ui';
 
@@ -39,16 +43,43 @@ function rememberClass(code: string) {
 }
 
 export const TeacherDashboard: React.FC = () => {
+  const [syncMode, setSyncMode] = useState<SyncMode | null>(null);
+  const [loggedIn, setLoggedIn] = useState(() => Boolean(getTeacherKey()));
+
+  useEffect(() => {
+    detectSyncMode().then(setSyncMode);
+    // 비밀번호가 바뀌어 요청이 거절되면 로그인 화면으로
+    const onSync = (e: Event) => {
+      if ((e as CustomEvent).detail?.type === 'TEACHER_LOGOUT') setLoggedIn(false);
+    };
+    window.addEventListener('promise_land_sync', onSync);
+    return () => window.removeEventListener('promise_land_sync', onSync);
+  }, []);
+
+  if (syncMode === null) {
+    return <div className="page bg-paper flex items-center justify-center text-muted">불러오는 중…</div>;
+  }
+  if (syncMode === 'local') return <TeacherSetup />;
+  if (syncMode === 'gas' && !loggedIn) return <TeacherLogin onLoggedIn={() => setLoggedIn(true)} />;
+
+  return (
+    <TeacherHome
+      syncMode={syncMode}
+      onLogout={() => {
+        clearTeacherKey();
+        setLoggedIn(false);
+      }}
+    />
+  );
+};
+
+const TeacherHome: React.FC<{ syncMode: SyncMode; onLogout: () => void }> = ({ syncMode, onLogout }) => {
   const [classes, setClasses] = useState<Classroom[] | null>(null);
   const [openCode, setOpenCode] = useState<string>(readLastClass);
-  const [syncMode, setSyncMode] = useState<SyncMode | null>(null);
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    detectSyncMode().then((mode) => {
-      setSyncMode(mode);
-      if (mode === 'gas') getGasSheetUrl().then(setSheetUrl);
-    });
+    if (syncMode === 'gas') getGasSheetUrl().then(setSheetUrl);
     return subscribeTeacherClassrooms(TEACHER_KEY, setClasses);
   }, []);
 
@@ -75,18 +106,18 @@ export const TeacherDashboard: React.FC = () => {
 
   return (
     <div className="page bg-paper">
-      <TopBar title="선생님 화면" onBack={() => (window.location.hash = '')} />
+      <TopBar
+        title="선생님 화면"
+        onBack={() => (window.location.hash = '')}
+        right={
+          syncMode === 'gas' ? (
+            <button onClick={onLogout} className="h-11 px-3 flex items-center gap-1.5 rounded-full text-sm text-muted active:bg-slate-100">
+              <LogOut className="w-4 h-4" /> 로그아웃
+            </button>
+          ) : undefined
+        }
+      />
       <main className="mx-auto max-w-lg px-5 py-5 flex flex-col gap-5">
-        {syncMode === 'local' && (
-          <Notice tone="error">
-            <p className="font-bold">기록 저장소가 연결되지 않았어요</p>
-            <p className="mt-1">
-              지금은 이 기기에만 저장되어 학생들이 다른 휴대폰에서 들어올 수 없어요. 구글 스프레드시트 주소를 <code>src/config.ts</code>에
-              넣고 다시 배포해 주세요. (README 참고)
-            </p>
-          </Notice>
-        )}
-
         <NewClassForm onCreated={open} />
 
         <section className="flex flex-col gap-2">
@@ -101,7 +132,7 @@ export const TeacherDashboard: React.FC = () => {
                 <li key={c.code}>
                   <button onClick={() => open(c.code)} className="w-full min-h-[64px] px-4 py-3 flex items-center gap-3 text-left active:bg-slate-50">
                     <span className="flex-1 min-w-0">
-                      <span className="block font-bold truncate">{c.title}</span>
+                      <span className="block font-bold truncate">{c.title || `${c.code} 수업`}</span>
                       <span className="block text-sm text-muted">
                         코드 <span className="font-mono font-bold text-ink">{c.code}</span>
                         {c.isClosed && <span className="ml-2 text-rose-600">입장 마감</span>}
@@ -192,7 +223,7 @@ const ClassPage: React.FC<{
 
   return (
     <div className="page bg-paper">
-      <TopBar title={classroom.title} onBack={onBack} />
+      <TopBar title={classroom.title || `${classroom.code} 수업`} onBack={onBack} />
       <main className="mx-auto max-w-lg px-5 py-5 flex flex-col gap-4">
         <InviteCard code={classroom.code} closed={Boolean(classroom.isClosed)} />
 

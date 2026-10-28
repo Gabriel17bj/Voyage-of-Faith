@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PlayerProgress } from '../../types';
 import { TOTAL_VERSES } from '../../data/verses';
-import { Button, Notice, ProgressBar } from '../ui';
+import { Notice } from '../ui';
 
 interface HomePageProps {
   initialCode: string;
@@ -44,6 +44,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
 
   const savedCount = saved ? Object.keys(saved.solved).length : 0;
+  const hasCode = code.trim().length > 0;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,40 +61,46 @@ export const HomePage: React.FC<HomePageProps> = ({
     else onPractice(n);
   };
 
-  const hasCode = code.trim().length > 0;
-
   return (
-    <div className="page bg-paper">
-      <main className="mx-auto max-w-lg px-5 pt-10 pb-8 flex flex-col gap-6">
-        <div className="text-center">
-          <div className="text-5xl" aria-hidden>
+    <div className="page bg-voyage">
+      <main className="mx-auto max-w-md px-5 pt-8 pb-10 flex flex-col gap-5">
+        {/* 타이틀 */}
+        <div className="relative text-center pt-4 pb-2">
+          <span className="absolute right-6 top-0 text-4xl" aria-hidden>
+            ☀️
+          </span>
+          <span className="absolute left-4 top-6 text-3xl opacity-90" aria-hidden>
+            ☁️
+          </span>
+          <div className="text-7xl bob inline-block" aria-hidden>
             ⛵
           </div>
-          <h1 className="mt-3 text-3xl font-black tracking-tight">믿음의 항해</h1>
-          <p className="mt-2 text-muted">성경 말씀 {TOTAL_VERSES}개를 외워 보아요</p>
+          <h1 className="mt-2 text-4xl font-black text-white [text-shadow:0_3px_0_#0369a1,0_6px_12px_rgba(3,105,161,0.4)]">믿음의 항해</h1>
+          <p className="mt-2 font-bold text-sky-900">말씀 {TOTAL_VERSES}개를 외우며 바다를 건너요</p>
         </div>
 
         {saved && savedCount > 0 && (
-          <section className="rounded-2xl bg-white border border-line p-4">
-            <div className="flex items-baseline justify-between">
-              <span className="font-bold">{saved.profile.name}의 항해</span>
-              <span className="text-sm text-muted">
-                {savedCount} / {TOTAL_VERSES}
+          <section className="rounded-3xl bg-white/95 p-4 shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl" aria-hidden>
+                🗺️
               </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-black truncate">{saved.profile.name}의 항해</p>
+                <p className="text-sm text-muted">
+                  {savedCount} / {TOTAL_VERSES} 지점 도착{saved.profile.classCode ? ` · 수업 ${saved.profile.classCode}` : ''}
+                </p>
+              </div>
             </div>
-            <ProgressBar value={savedCount} max={TOTAL_VERSES} className="mt-3" />
-            {saved.profile.classCode && <p className="mt-2 text-sm text-muted">수업 코드 {saved.profile.classCode}</p>}
-            <Button block className="mt-4" onClick={onResume} disabled={joining}>
-              {joining ? '수업에 연결하는 중…' : '이어하기'}
-            </Button>
+            <button onClick={onResume} disabled={joining} className="btn-game btn-green w-full h-14 mt-3 text-lg">
+              {joining ? '연결하는 중…' : '이어서 항해하기'}
+            </button>
           </section>
         )}
 
-        <form onSubmit={submit} className="rounded-2xl bg-white border border-line p-5 flex flex-col gap-4">
-          <h2 className="font-bold text-lg">{saved && savedCount > 0 ? '새로 시작하기' : '시작하기'}</h2>
-
+        <form onSubmit={submit} className="rounded-3xl bg-white p-5 shadow-xl flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-bold text-muted">이름</span>
+            <span className="text-sm font-black text-sky-800">선장 이름</span>
             <input
               value={name}
               onChange={(e) => {
@@ -102,12 +109,12 @@ export const HomePage: React.FC<HomePageProps> = ({
               }}
               placeholder="예: 김요한"
               autoComplete="off"
-              className="h-13 min-h-[52px] px-4 rounded-xl border border-line bg-white focus:outline-none focus:border-brand"
+              className="h-14 px-4 rounded-2xl border-2 border-sky-200 bg-sky-50 text-lg font-bold focus:outline-none focus:border-sky-500"
             />
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-bold text-muted">수업 코드 (선생님이 알려준 5자리)</span>
+            <span className="text-sm font-black text-sky-800">수업 코드</span>
             <input
               value={code}
               onChange={(e) => {
@@ -115,12 +122,12 @@ export const HomePage: React.FC<HomePageProps> = ({
                 setFormError(null);
                 onClearError();
               }}
-              placeholder="없으면 비워 두세요"
+              placeholder="선생님이 알려준 5자리"
               autoCapitalize="characters"
               autoCorrect="off"
               autoComplete="off"
               spellCheck={false}
-              className="h-13 min-h-[52px] px-4 rounded-xl border border-line bg-white font-mono text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:font-sans placeholder:text-base focus:outline-none focus:border-brand"
+              className="h-14 px-4 rounded-2xl border-2 border-sky-200 bg-sky-50 font-mono text-2xl font-black tracking-[0.35em] text-sky-900 placeholder:tracking-normal placeholder:font-sans placeholder:text-base placeholder:font-normal focus:outline-none focus:border-sky-500"
             />
           </label>
 
@@ -131,7 +138,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <p className="mt-1">{joinError}</p>
               <button
                 type="button"
-                onClick={() => name.trim() && onPractice(name.trim())}
+                onClick={() => (name.trim() ? onPractice(name.trim()) : setFormError('이름을 입력해 주세요.'))}
                 className="mt-2 font-bold underline underline-offset-4"
               >
                 코드 없이 혼자 연습하기
@@ -139,16 +146,17 @@ export const HomePage: React.FC<HomePageProps> = ({
             </Notice>
           )}
 
-          <Button type="submit" block disabled={joining}>
-            {joining ? '수업에 연결하는 중…' : hasCode ? '수업에 들어가기' : '혼자 연습하기'}
-          </Button>
+          <button type="submit" disabled={joining} className="btn-game btn-gold h-16 text-xl">
+            {joining ? '수업에 연결하는 중…' : hasCode ? '⚓ 출항하기' : '⚓ 혼자 연습하기'}
+          </button>
+          {!hasCode && <p className="-mt-1 text-center text-sm text-muted">수업 코드를 넣으면 선생님 화면에 기록돼요.</p>}
         </form>
 
-        <div className="flex justify-center gap-6 text-sm">
-          <button onClick={onHowTo} className="text-muted underline underline-offset-4">
+        <div className="flex justify-center gap-6 text-sm font-bold text-white/95">
+          <button onClick={onHowTo} className="underline underline-offset-4">
             게임 방법
           </button>
-          <button onClick={onTeacher} className="text-muted underline underline-offset-4">
+          <button onClick={onTeacher} className="underline underline-offset-4">
             선생님 화면
           </button>
         </div>

@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Lightbulb } from 'lucide-react';
+import { X } from 'lucide-react';
 import { STAGES, TOTAL_VERSES, Verse, normalizeText, shuffle, splitWithBlanks } from '../../data/verses';
 import { sounds } from '../../utils/audio';
-import { Button, Notice, Stars, TopBar } from '../ui';
 
 interface VersePageProps {
   verse: Verse;
   alreadyStars: number;
+  stageDone: number;
+  stageTotal: number;
   onBack: () => void;
   onHint: () => void;
   onWrong: () => void;
@@ -14,14 +15,24 @@ interface VersePageProps {
   onNext: () => void;
 }
 
-type Feedback = { tone: 'error' | 'info' | 'success'; text: string } | null;
+type Feedback = { tone: 'error' | 'info'; text: string } | null;
 
 /** 힌트·오답 횟수로 별 계산: 0번 → 3개, 1번 → 2개, 2번 이상 → 1개 */
 function starsFor(misses: number): number {
   return misses === 0 ? 3 : misses === 1 ? 2 : 1;
 }
 
-export const VersePage: React.FC<VersePageProps> = ({ verse, alreadyStars, onBack, onHint, onWrong, onSolved, onNext }) => {
+export const VersePage: React.FC<VersePageProps> = ({
+  verse,
+  alreadyStars,
+  stageDone,
+  stageTotal,
+  onBack,
+  onHint,
+  onWrong,
+  onSolved,
+  onNext,
+}) => {
   const stage = STAGES.find((s) => s.id === verse.stage)!;
   const [misses, setMisses] = useState(0);
   const [wrongTries, setWrongTries] = useState(0);
@@ -74,58 +85,77 @@ export const VersePage: React.FC<VersePageProps> = ({ verse, alreadyStars, onBac
   };
 
   const isLast = verse.id === TOTAL_VERSES;
+  const shownDone = Math.min(stageTotal, stageDone);
 
   return (
-    <div className="page bg-paper flex flex-col">
-      <TopBar title={`${verse.id}번 말씀`} onBack={onBack} right={<span className="pr-3 text-sm text-muted">{stage.id}단계</span>} />
+    <div className="page bg-sea flex flex-col">
+      {/* 상단: 닫기 + 이번 단계 진행 */}
+      <header className="sticky top-0 z-10 pt-[env(safe-area-inset-top)] bg-sky-700/95 border-b-4 border-sky-900/40">
+        <div className="mx-auto max-w-md h-14 px-3 flex items-center gap-3">
+          <button onClick={onBack} className="w-11 h-11 -ml-1 flex items-center justify-center rounded-full text-white active:bg-white/10" aria-label="지도로 돌아가기">
+            <X className="w-7 h-7" />
+          </button>
+          <div className="flex-1 h-4 rounded-full bg-sky-950/40 overflow-hidden">
+            <div className="h-full rounded-full bg-amber-400 transition-[width] duration-300" style={{ width: `${(shownDone / stageTotal) * 100}%` }} />
+          </div>
+          <span className="text-sm font-black text-white whitespace-nowrap">
+            {shownDone}/{stageTotal}
+          </span>
+        </div>
+      </header>
 
-      <main className="mx-auto w-full max-w-lg px-5 py-5 flex-1 flex flex-col gap-4">
-        <div>
-          <p className="text-sm font-bold text-brand">{verse.reference}</p>
-          <p className="mt-1 text-muted">{stage.guide}</p>
+      <main className="mx-auto w-full max-w-md px-4 pt-4 pb-6 flex-1 flex flex-col gap-4">
+        <div className="text-white">
+          <span className="inline-block rounded-full bg-white/20 px-3 py-1 text-xs font-black">
+            {stage.id}단계 · {stage.title} · {verse.id}번
+          </span>
+          <p className="mt-2 text-2xl font-black [text-shadow:0_2px_0_rgba(3,105,161,0.6)]">{verse.reference}</p>
+          <p className="mt-0.5 font-bold text-sky-100">{stage.guide}</p>
         </div>
 
-        {solved ? (
-          <SolvedPanel verse={verse} stars={result!} alreadyStars={alreadyStars} isLast={isLast} onNext={onNext} onBack={onBack} />
-        ) : (
-          <>
-            <div className={shaking ? 'shake' : ''} onAnimationEnd={() => setShaking(false)}>
-              {verse.blank && <BlankQuiz verse={verse} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />}
-              {verse.chunks && <OrderQuiz verse={verse} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />}
-              {verse.blanks && <BlanksQuiz verse={verse} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />}
-              {verse.stage >= 4 && (
-                <TypingQuiz verse={verse} hidden={verse.stage === 5} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />
-              )}
-            </div>
+        <div className={shaking ? 'shake' : ''} onAnimationEnd={() => setShaking(false)}>
+          {verse.blank && <BlankQuiz verse={verse} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />}
+          {verse.chunks && <OrderQuiz verse={verse} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />}
+          {verse.blanks && <BlanksQuiz verse={verse} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />}
+          {verse.stage >= 4 && (
+            <TypingQuiz verse={verse} hidden={verse.stage === 5} hintStep={hintStep} reveal={revealRequest} onCorrect={handleCorrect} onWrong={handleWrong} />
+          )}
+        </div>
 
-            {feedback && <Notice tone={feedback.tone}>{feedback.text}</Notice>}
-
-            <div className="mt-auto lg:mt-2 pt-2 flex gap-3">
-              <Button
-                variant="secondary"
-                className="flex-1 flex items-center justify-center gap-2"
-                onClick={() => useHint(hintText(verse, hintStep))}
-              >
-                <Lightbulb className="w-5 h-5 text-amber-500" />
-                힌트
-              </Button>
-              {wrongTries >= 3 && (
-                <Button
-                  variant="secondary"
-                  className="flex-1"
-                  onClick={() => {
-                    setRevealRequest(true);
-                    setTimeout(() => handleCorrect(1), 600);
-                  }}
-                >
-                  정답 보기
-                </Button>
-              )}
-            </div>
-            <p className="text-center text-xs text-muted">힌트를 쓰거나 틀리면 별이 줄어요</p>
-          </>
+        {feedback && (
+          <div
+            role={feedback.tone === 'error' ? 'alert' : undefined}
+            className={`rounded-2xl px-4 py-3 font-bold border-b-4 ${
+              feedback.tone === 'error' ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-amber-100 text-amber-900 border-amber-300'
+            }`}
+          >
+            {feedback.tone === 'error' ? '앗! ' : '💡 '}
+            {feedback.text}
+          </div>
         )}
+
+        {!solved && (
+          <div className="mt-auto pt-2 flex gap-3">
+            <button className="btn-game btn-white flex-1 h-14 text-lg" onClick={() => useHint(hintText(verse, hintStep))}>
+              💡 힌트
+            </button>
+            {wrongTries >= 3 && (
+              <button
+                className="btn-game btn-white flex-1 h-14 text-lg"
+                onClick={() => {
+                  setRevealRequest(true);
+                  setTimeout(() => handleCorrect(1), 600);
+                }}
+              >
+                🔑 정답 보기
+              </button>
+            )}
+          </div>
+        )}
+        {!solved && <p className="text-center text-xs font-bold text-sky-100">힌트를 쓰거나 틀리면 별이 줄어요</p>}
       </main>
+
+      {solved && <ResultSheet verse={verse} stars={result!} alreadyStars={alreadyStars} isLast={isLast} onNext={onNext} onBack={onBack} />}
     </div>
   );
 };
@@ -140,9 +170,11 @@ function hintText(verse: Verse, step: number): string | undefined {
   return verse.stage === 5 ? '말씀을 잠깐 보여 드려요.' : '다음 낱말을 넣어 드렸어요.';
 }
 
-// ───────────────────────────── 성공 화면 ─────────────────────────────
+// ───────────────────────────── 정답 패널 ─────────────────────────────
 
-const SolvedPanel: React.FC<{
+const PRAISE = ['', '해냈어요!', '잘했어요!', '완벽해요!'];
+
+const ResultSheet: React.FC<{
   verse: Verse;
   stars: number;
   alreadyStars: number;
@@ -150,25 +182,31 @@ const SolvedPanel: React.FC<{
   onNext: () => void;
   onBack: () => void;
 }> = ({ verse, stars, alreadyStars, isLast, onNext, onBack }) => (
-  <div className="flex-1 flex flex-col gap-4">
-    <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-5 text-center">
-      <p className="text-xl font-black text-emerald-800">정답이에요!</p>
-      <div className="mt-2">
-        <Stars count={stars} size="text-3xl" />
+  <div className="fixed inset-0 z-30 flex flex-col justify-end bg-sky-950/40">
+    <div className="sheet-up bg-emerald-50 border-t-4 border-emerald-400 rounded-t-3xl px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="mx-auto max-w-md flex flex-col gap-4">
+        <div className="text-center">
+          <p className="text-2xl font-black text-emerald-700">🎉 {PRAISE[stars]}</p>
+          <div className="mt-1 text-5xl tracking-wide">
+            {[1, 2, 3].map((i) => (
+              <span key={i} className={`pop inline-block ${i <= stars ? 'text-amber-400' : 'text-slate-300'}`} style={{ animationDelay: `${i * 120}ms` }}>
+                ★
+              </span>
+            ))}
+          </div>
+          {alreadyStars > stars && <p className="text-sm font-bold text-emerald-800">전에 받은 별 {alreadyStars}개가 유지돼요.</p>}
+        </div>
+        <blockquote className="scroll-card p-4 text-[17px] leading-[1.8] max-h-[34vh] overflow-y-auto">
+          {verse.text}
+          <footer className="mt-2 text-sm font-bold text-amber-800">— {verse.reference}</footer>
+        </blockquote>
+        <button onClick={onNext} className="btn-game btn-green h-16 text-xl">
+          {isLast ? '👑 약속의 땅 도착!' : '계속 항해하기 ⛵'}
+        </button>
+        <button onClick={onBack} className="text-sm font-bold text-emerald-800 underline underline-offset-4">
+          지도 보기
+        </button>
       </div>
-      {alreadyStars > stars && <p className="mt-1 text-sm text-emerald-800">이전 기록(별 {alreadyStars}개)이 유지돼요.</p>}
-    </div>
-    <blockquote className="rounded-2xl bg-white border border-line p-5 text-[19px] leading-[1.9]">
-      {verse.text}
-      <footer className="mt-3 text-sm font-bold text-muted">— {verse.reference}</footer>
-    </blockquote>
-    <div className="mt-auto flex flex-col gap-2">
-      <Button block onClick={onNext}>
-        {isLast ? '결과 보기' : '다음 말씀'}
-      </Button>
-      <Button block variant="ghost" onClick={onBack}>
-        목록으로
-      </Button>
     </div>
   </div>
 );
@@ -181,7 +219,7 @@ interface QuizProps {
   onWrong: (message: string) => void;
 }
 
-const verseBox = 'rounded-2xl bg-white border border-line p-5 text-[19px] leading-[2.1]';
+const verseBox = 'scroll-card p-5 text-[19px] leading-[2.1] text-ink';
 
 // ───────────────────────────── 1단계: 빈칸 1개 ─────────────────────────────
 
@@ -238,9 +276,7 @@ const BlankQuiz: React.FC<QuizProps> = ({ verse, hintStep, reveal, onCorrect, on
               key={opt}
               disabled={gone || Boolean(chosen)}
               onClick={() => pick(opt)}
-              className={`min-h-[60px] rounded-xl border text-lg font-bold transition-colors ${
-                gone ? 'bg-slate-50 border-line text-slate-300 line-through' : 'bg-white border-line active:bg-blue-50 active:border-brand'
-              }`}
+              className={`btn-game btn-white min-h-[64px] text-xl ${gone ? 'is-wrong line-through' : ''} ${chosen === opt ? 'is-right' : ''}`}
             >
               {opt}
             </button>
@@ -319,14 +355,14 @@ const OrderQuiz: React.FC<QuizProps> = ({ verse, hintStep, reveal, onCorrect, on
     <div className="flex flex-col gap-4">
       <div className={`${verseBox} min-h-[140px]`}>
         {placed.length === 0 ? (
-          <span className="text-slate-400 text-base">아래 조각을 순서대로 누르세요</span>
+          <span className="text-amber-800/60 text-base font-bold">아래 조각을 순서대로 누르세요 👇</span>
         ) : (
           <div className="flex flex-wrap gap-2">
             {placed.map((idx, pos) => (
               <button
                 key={`${idx}-${pos}`}
                 onClick={() => unplace(pos)}
-                className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-[17px] text-ink leading-snug text-left"
+                className="px-3 py-1.5 rounded-lg bg-white border-2 border-amber-300 text-[17px] text-ink leading-snug text-left"
               >
                 {chunks[idx]}
               </button>
@@ -339,13 +375,13 @@ const OrderQuiz: React.FC<QuizProps> = ({ verse, hintStep, reveal, onCorrect, on
           <button
             key={idx}
             onClick={() => place(idx)}
-            className="min-h-[48px] px-4 py-2 rounded-xl bg-white border border-line text-[17px] font-bold leading-snug text-left active:bg-blue-50 active:border-brand"
+            className="btn-game btn-white min-h-[52px] px-4 py-2 text-[17px] leading-snug text-left"
           >
             {chunks[idx]}
           </button>
         ))}
       </div>
-      {placed.length > 0 && <p className="text-xs text-muted">놓은 조각을 누르면 되돌릴 수 있어요.</p>}
+      {placed.length > 0 && <p className="text-xs font-bold text-sky-100">놓은 조각을 누르면 되돌릴 수 있어요.</p>}
     </div>
   );
 };
@@ -452,13 +488,13 @@ const BlanksQuiz: React.FC<QuizProps> = ({ verse, hintStep, reveal, onCorrect, o
             key={opt}
             disabled={used.includes(opt) || active < 0}
             onClick={() => choose(opt)}
-            className="min-h-[52px] px-5 rounded-xl bg-white border border-line text-lg font-bold active:bg-blue-50 active:border-brand disabled:text-slate-300 disabled:bg-slate-50"
+            className="btn-game btn-white min-h-[56px] px-5 text-lg"
           >
             {opt}
           </button>
         ))}
       </div>
-      <p className="text-xs text-muted">채운 빈칸을 누르면 지울 수 있어요.</p>
+      <p className="text-xs font-bold text-sky-100">채운 빈칸을 누르면 지울 수 있어요.</p>
     </div>
   );
 };
@@ -539,8 +575,8 @@ const TypingQuiz: React.FC<QuizProps & { hidden: boolean }> = ({ verse, hidden, 
     <div className="flex flex-col gap-4">
       {(!hidden || peek) && <p className={`${verseBox} ${hidden ? 'bg-amber-50 border-amber-200' : ''}`}>{verse.text}</p>}
       {hidden && !peek && (
-        <div className="rounded-2xl bg-white border border-dashed border-line p-5 text-center text-muted">
-          말씀이 가려져 있어요. 외워서 써 보세요.
+        <div className="scroll-card p-5 text-center font-bold text-amber-900">
+          📜 말씀이 가려져 있어요. 외워서 써 보세요!
         </div>
       )}
       <textarea
@@ -548,20 +584,20 @@ const TypingQuiz: React.FC<QuizProps & { hidden: boolean }> = ({ verse, hidden, 
         onChange={(e) => setTyped(e.target.value)}
         rows={5}
         placeholder="여기에 말씀을 써 보세요"
-        className={`w-full rounded-2xl border bg-white p-4 text-[17px] leading-relaxed focus:outline-none ${
-          hasMistake ? 'border-rose-300 focus:border-rose-400' : 'border-line focus:border-brand'
+        className={`w-full rounded-2xl border-4 bg-white p-4 text-[17px] leading-relaxed focus:outline-none ${
+          hasMistake ? 'border-rose-400' : 'border-sky-300 focus:border-amber-400'
         }`}
       />
       <div className="flex items-center gap-3">
-        <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
+        <div className="flex-1 h-3 rounded-full bg-sky-950/40 overflow-hidden">
           <div className="h-full bg-emerald-500 transition-[width] duration-200" style={{ width: `${percent}%` }} />
         </div>
-        <span className="text-sm font-bold w-12 text-right">{percent}%</span>
+        <span className="text-sm font-black text-white w-12 text-right">{percent}%</span>
       </div>
-      {hasMistake && <p className="text-sm text-rose-600">틀린 글자가 있어요. 빨간 테두리가 사라질 때까지 고쳐 보세요.</p>}
-      <Button block variant="secondary" onClick={submit} disabled={!typed.trim()}>
+      {hasMistake && <p className="rounded-xl bg-rose-100 px-3 py-2 text-sm font-bold text-rose-700">틀린 글자가 있어요. 빨간 테두리가 사라질 때까지 고쳐 보세요.</p>}
+      <button className="btn-game btn-green h-14 text-lg" onClick={submit} disabled={!typed.trim()}>
         다 썼어요
-      </Button>
+      </button>
     </div>
   );
 };
